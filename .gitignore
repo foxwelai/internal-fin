@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+.devdb/
+.env
+
+# Prisma generates this on install and before every build.
+src/generated/

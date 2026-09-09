@@ -1,0 +1,304 @@
+// Foxwel Finance — schema
+//
+// Money is stored as BigInt paise everywhere. Business dates are stored as
+// SQL DATE (@db.Date) because they are calendar dates, not instants; audit
+// timestamps use timestamptz.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/* -------------------------------------------------------------------------- */
+/* Auth                                                                        */
+/* -------------------------------------------------------------------------- */
+
+/// Access level. Which permissions each role carries is decided by
+/// src/lib/permissions.ts; who holds which role lives here, in the database.
+enum UserRole {
+  /// Full access, including managing people and company settings.
+  OWNER
+  /// Everything financial. Cannot manage people or change settings.
+  ADMIN
+  /// Read-only.
+  VIEWER
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String
+  passwordHash String
+  role         UserRole  @default(VIEWER)
+  /// Revoking access without deleting the record — and with it the audit trail
+  /// of who did what. Checked on every request, not just at sign-in.
+  isActive     Boolean   @default(true)
+  /// Set when an owner adds someone from the Team page. Null for the account
+  /// created by the initial bootstrap.
+  createdById  String?
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  createdBy    User?  @relation("UserCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdUsers User[] @relation("UserCreatedBy")
+
+  @@index([isActive])
+  @@map("users")
+}
+
+/* -------------------------------------------------------------------------- */
+/* Clients & projects                                                          */
+/* -------------------------------------------------------------------------- */
+
+model Client {
+  id            String   @id @default(cuid())
+  name          String
+  contactPerson String?
+  email         String?
+  phone         String?
+  notes         String?
+  isDemo        Boolean  @default(false)
+  archivedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  projects Project[]
+
+  @@index([archivedAt])
+  @@index([name])
+  @@map("clients")
+}
+
+enum ProjectStatus {
+  PENDING
+  APPROVED
+  ON_HOLD
+}
+
+model Project {
+  id                     String        @id @default(cuid())
+  clientId               String
+  name                   String
+  description            String?
+  /// Total agreed budget, in paise.
+  budgetPaise            BigInt
+  status                 ProjectStatus @default(PENDING)
+  startDate              DateTime?     @db.Date
+  expectedCompletionDate DateTime?     @db.Date
+  notes                  String?
+  isDemo                 Boolean       @default(false)
+  archivedAt             DateTime?
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+
+  client    Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  schedules PaymentSchedule[]
+  receipts  Receipt[]
+
+  @@index([clientId])
+  @@index([status])
+  @@index([archivedAt])
+  @@map("projects")
+}
+
+/* -------------------------------------------------------------------------- */
+/* Expected payments vs. actual receipts                                       */
+/* -------------------------------------------------------------------------- */
+
+/// An *expected* payment: a line in the project's collection schedule.
+/// Never counted as income on its own — only its allocations are real money.
+model PaymentSchedule {
+  id          String    @id @default(cuid())
+  projectId   String
+  label       String
+  amountPaise BigInt
+  dueDate     DateTime  @db.Date
+  notes       String?
+  archivedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  project     Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  allocations ReceiptAllocation[]
+
+  @@index([projectId])
+  @@index([dueDate])
+  @@map("payment_schedules")
+}
+
+enum PaymentMethod {
+  BANK_TRANSFER
+  UPI
+  CHEQUE
+  CASH
+  CARD
+  OTHER
+}
+
+/// Money that actually arrived. Exists independently of any schedule, so an
+/// advance can be recorded before the schedule is drawn up.
+model Receipt {
+  id          String        @id @default(cuid())
+  projectId   String
+  amountPaise BigInt
+  receivedOn  DateTime      @db.Date
+  method      PaymentMethod @default(BANK_TRANSFER)
+  reference   String?
+  notes       String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  project     Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  allocations ReceiptAllocation[]
+
+  @@index([projectId])
+  @@index([receivedOn])
+  @@map("receipts")
+}
+
+/// Links part of a receipt to a scheduled payment. A receipt may be split
+/// across several schedule lines, or left wholly/partly unallocated.
+model ReceiptAllocation {
+  id          String   @id @default(cuid())
+  receiptId   String
+  scheduleId  String
+  amountPaise BigInt
+  createdAt   DateTime @default(now())
+
+  receipt  Receipt         @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  schedule PaymentSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@unique([receiptId, scheduleId])
+  @@index([scheduleId])
+  @@map("receipt_allocations")
+}
+
+/* -------------------------------------------------------------------------- */
+/* Monthly expenses                                                            */
+/* -------------------------------------------------------------------------- */
+
+enum ExpenseCategory {
+  SALARIES
+  RENT
+  SOFTWARE
+  UTILITIES
+  MARKETING
+  FREELANCERS
+  TRAVEL
+  MISC
+}
+
+/// Blueprint for an expense that repeats every month. Editing a template
+/// never rewrites months already generated from it.
+model RecurringExpenseTemplate {
+  id           String          @id @default(cuid())
+  name         String
+  category     ExpenseCategory
+  amountPaise  BigInt
+  dueDayOfMonth Int?
+  notes        String?
+  isActive     Boolean         @default(true)
+  isDemo       Boolean         @default(false)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  expenses MonthlyExpense[]
+
+  @@index([isActive])
+  @@map("recurring_expense_templates")
+}
+
+/// One budgeted expense line, attributed to exactly one month. The month it
+/// belongs to is independent of when cash actually left the account.
+model MonthlyExpense {
+  id           String          @id @default(cuid())
+  name         String
+  category     ExpenseCategory
+  plannedPaise BigInt
+  periodYear   Int
+  periodMonth  Int
+  dueDate      DateTime?       @db.Date
+  isRecurring  Boolean         @default(false)
+  templateId   String?
+  notes        String?
+  isDemo       Boolean         @default(false)
+  archivedAt   DateTime?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  template RecurringExpenseTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  payments ExpensePayment[]
+
+  /// Makes recurring generation idempotent: re-running it for a month cannot
+  /// create a second row for the same template.
+  @@unique([templateId, periodYear, periodMonth], name: "template_period")
+  @@index([periodYear, periodMonth])
+  @@index([category])
+  @@map("monthly_expenses")
+}
+
+model ExpensePayment {
+  id          String        @id @default(cuid())
+  expenseId   String
+  amountPaise BigInt
+  paidOn      DateTime      @db.Date
+  method      PaymentMethod @default(BANK_TRANSFER)
+  reference   String?
+  notes       String?
+  createdAt   DateTime      @default(now())
+
+  expense MonthlyExpense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+
+  @@index([expenseId])
+  @@index([paidOn])
+  @@map("expense_payments")
+}
+
+/* -------------------------------------------------------------------------- */
+/* Cash position                                                               */
+/* -------------------------------------------------------------------------- */
+
+/// Non-operating cash movements. Kept apart from collections and expenses so
+/// funding and owner draws never flatter (or dent) the operating result.
+enum CashMovementType {
+  FUNDING
+  OWNER_CONTRIBUTION
+  OWNER_WITHDRAWAL
+  TRANSFER_IN
+  TRANSFER_OUT
+}
+
+model CashMovement {
+  id          String           @id @default(cuid())
+  type        CashMovementType
+  amountPaise BigInt
+  occurredOn  DateTime         @db.Date
+  label       String
+  notes       String?
+  isDemo      Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([occurredOn])
+  @@map("cash_movements")
+}
+
+/// Single-row configuration table.
+model AppSettings {
+  id                   String    @id @default("singleton")
+  companyName          String    @default("foxwel.ai")
+  openingBalancePaise  BigInt?
+  openingBalanceDate   DateTime? @db.Date
+  /// True when the opening balance came from the demo dataset, so removing
+  /// demo data can clear it without touching a real configured balance.
+  openingBalanceIsDemo Boolean   @default(false)
+  fiscalYearStartMonth Int       @default(4)
+  updatedAt            DateTime  @updatedAt
+
+  @@map("app_settings")
+}

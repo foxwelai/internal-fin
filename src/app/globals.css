@@ -1,26 +1,292 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+
+/* ==========================================================================
+   Foxwel Finance — design tokens
+   Dark-only terminal palette: deep charcoal ground, layered surfaces,
+   Foxwel orange #F4551D as the single brand accent, restrained P/L colours.
+   ========================================================================== */
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: dark;
+
+  /* Ground + layered surfaces */
+  --background: #0a0b0d;
+  --surface: #101216;
+  --surface-2: #15181d;
+  --surface-3: #1b1f26;
+  --elevated: #14171c;
+
+  /* Ink */
+  --foreground: #e9ebef;
+  --muted-foreground: #8b929e;
+  --faint-foreground: #626a77;
+
+  /* Lines */
+  --border: #23272f;
+  --border-strong: #2f343d;
+  --ring: #f4551d;
+
+  /* Brand */
+  --brand: #f4551d;
+  --brand-hover: #ff6431;
+  --brand-active: #d8430f;
+  --brand-foreground: #ffffff;
+  --brand-soft: color-mix(in oklab, #f4551d 16%, transparent);
+  --brand-line: color-mix(in oklab, #f4551d 38%, transparent);
+
+  /* Financial semantics — restrained, not neon */
+  --positive: #46b881;
+  --positive-soft: color-mix(in oklab, #46b881 15%, transparent);
+  --negative: #e05561;
+  --negative-soft: color-mix(in oklab, #e05561 15%, transparent);
+  --warning: #d9a441;
+  --warning-soft: color-mix(in oklab, #d9a441 15%, transparent);
+  --info: #5b8def;
+  --info-soft: color-mix(in oklab, #5b8def 15%, transparent);
+  --neutral: #7b8290;
+
+  /* Forecast / projection accents (dashed, cooler than actuals) */
+  --projected: #7c8ba1;
+
+  /* shadcn aliases */
+  --card: var(--surface);
+  --card-foreground: var(--foreground);
+  --popover: var(--elevated);
+  --popover-foreground: var(--foreground);
+  --primary: var(--brand);
+  --primary-foreground: var(--brand-foreground);
+  --secondary: var(--surface-3);
+  --secondary-foreground: var(--foreground);
+  --muted: var(--surface-2);
+  --accent: var(--surface-3);
+  --accent-foreground: var(--foreground);
+  --destructive: var(--negative);
+  --destructive-foreground: #ffffff;
+  --input: var(--surface-2);
+
+  --radius: 0.625rem;
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-elevated: var(--elevated);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-faint-foreground: var(--faint-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-ring: var(--ring);
+
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-active: var(--brand-active);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-line: var(--brand-line);
+
+  --color-positive: var(--positive);
+  --color-positive-soft: var(--positive-soft);
+  --color-negative: var(--negative);
+  --color-negative-soft: var(--negative-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-neutral: var(--neutral);
+  --color-projected: var(--projected);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-input: var(--input);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-mono-figures), ui-monospace, "SF Mono", Menlo, monospace;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    overscroll-behavior-y: none;
+  }
+
+  /*
+   * Grid items default to min-width:auto, so a single long unbreakable row —
+   * a project name beside a milestone label, say — stretches its track and
+   * makes the whole page scroll sideways on a phone. Every grid in this app
+   * wants its children to shrink and truncate instead. :where() keeps the
+   * specificity at zero so an explicit utility still overrides it.
+   */
+  :where(.grid) > * {
+    min-width: 0;
+  }
+
+  /* Money, dates, ids, counts — anything a reader scans in a column. */
+  .tabular,
+  .font-mono {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1, "zero" 1;
+  }
+
+  ::selection {
+    background: var(--brand-soft);
+    color: var(--foreground);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  /* Subtle, dark-appropriate scrollbars */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--border-strong);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: #3c434e;
+    background-clip: content-box;
+  }
+
+  /* Remove number-input spinners — money fields are typed, not stepped. */
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+
+  /* Dark-mode native date pickers */
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.65);
+    cursor: pointer;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer utilities {
+  /* Hairline grid used behind hero/metric surfaces */
+  .bg-grid {
+    background-image:
+      linear-gradient(to right, color-mix(in oklab, var(--border) 55%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in oklab, var(--border) 55%, transparent) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+
+  .surface-sheen {
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0) 45%);
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* Loading skeleton shimmer */
+  .skeleton {
+    position: relative;
+    overflow: hidden;
+    background-color: var(--surface-2);
+  }
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in oklab, var(--foreground) 6%, transparent),
+      transparent
+    );
+    animation: skeleton-sweep 1.5s ease-in-out infinite;
+  }
+
+  @keyframes skeleton-sweep {
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+/* Recharts: align default chrome with the terminal palette */
+.recharts-cartesian-grid line {
+  stroke: color-mix(in oklab, var(--border) 80%, transparent);
+}
+.recharts-cartesian-axis-line,
+.recharts-cartesian-axis-tick-line {
+  stroke: transparent;
+}
+.recharts-text {
+  fill: var(--faint-foreground);
+  font-size: 11px;
+}
+.recharts-surface:focus,
+.recharts-wrapper:focus {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
