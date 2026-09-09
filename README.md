@@ -328,6 +328,27 @@ Then bootstrap the first account once, against the same database:
 npm run db:seed
 ```
 
+### If signing in or out sends you to localhost
+
+`AUTH_URL` (or `NEXTAUTH_URL`) is set in the deployed environment — almost
+always a value copied over from a local `.env`. Auth.js uses it as the origin
+for every redirect it builds, so people on the live site get sent to
+`http://localhost:3000`; pressing Back appears to fix it because the session
+cookie was set correctly on the real host all along.
+
+It also has a quieter consequence: Auth.js decides `useSecureCookies` from that
+URL's protocol, so an `http://localhost` value strips the **Secure** flag off
+the session cookie on your HTTPS site.
+
+**Remove `AUTH_URL` and `NEXTAUTH_URL` from Project Settings → Environment
+Variables, then redeploy.** The app infers its URL from the request, which is
+what makes the production domain and every preview deployment work.
+
+The app defends itself on both counts: sign-in and sign-out navigate with Next's
+own `redirect()` on a relative path, so they cannot be aimed at another origin;
+and a production build refuses to start if `AUTH_URL` points at localhost rather
+than silently issuing a downgraded cookie.
+
 ### If you see the Next.js starter page after deploying
 
 The deploy is building a commit that does not contain the application — almost

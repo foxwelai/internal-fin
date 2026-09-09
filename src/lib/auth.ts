@@ -8,6 +8,29 @@ import { prisma } from "@/lib/db";
 import { can, forbiddenMessage, type Permission } from "@/lib/permissions";
 import type { User, UserRole } from "@/generated/prisma";
 
+/**
+ * AUTH_URL overrides the origin Auth.js derives from the request, and a value
+ * left over from local development does real damage in production: redirects
+ * go to localhost, and — because Auth.js decides `useSecureCookies` from that
+ * URL's protocol — the session cookie loses its Secure flag on an HTTPS site.
+ *
+ * Left unset, Auth.js reads the host from the request, which is correct for the
+ * production domain, every preview deployment and localhost alike. So refuse to
+ * start rather than serve a downgraded session.
+ */
+if (process.env.NODE_ENV === "production") {
+  const configuredUrl = process.env.AUTH_URL ?? process.env.NEXTAUTH_URL;
+  if (configuredUrl && /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])/i.test(configuredUrl)) {
+    throw new Error(
+      `AUTH_URL is set to "${configuredUrl}" in a production build.\n` +
+        "  Sign-in and sign-out would redirect people to localhost, and the session\n" +
+        "  cookie would be issued without the Secure flag.\n" +
+        "  Remove AUTH_URL (and NEXTAUTH_URL) from your hosting environment — the app\n" +
+        "  infers its URL from the request, which is what makes preview deploys work.",
+    );
+  }
+}
+
 const credentialsSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
   password: z.string().min(1),

@@ -87,3 +87,46 @@ describe("server action authorisation", () => {
     }
   });
 });
+
+/** Strips comments so a rule cannot be tripped by prose that merely names it. */
+function codeOnly(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+}
+
+describe("auth redirects", () => {
+  const source = readFileSync(path.join(ACTIONS_DIR, "auth.ts"), "utf8");
+  const code = codeOnly(source);
+
+  /**
+   * `redirectTo` makes Auth.js build an absolute URL from AUTH_URL, which is
+   * how a leftover local value sends people on the deployed site to localhost.
+   * Redirecting with Next's own `redirect()` keeps the browser on whichever
+   * host served the request.
+   */
+  it("never hands redirectTo to Auth.js", () => {
+    expect(code).not.toMatch(/redirectTo\s*:/);
+  });
+
+  it("opts out of Auth.js redirects and navigates itself", () => {
+    expect(code).toContain("redirect: false");
+    expect(code).toContain("redirect(AFTER_SIGN_IN)");
+    expect(code).toContain("redirect(AFTER_SIGN_OUT)");
+  });
+
+  it("redirects to paths, never absolute URLs", () => {
+    const targets = [...code.matchAll(/^const AFTER_SIGN_(?:IN|OUT) = "([^"]+)";$/gm)].map(
+      (match) => match[1],
+    );
+    expect(targets).toEqual(["/overview", "/login"]);
+    for (const target of targets) expect(target.startsWith("/")).toBe(true);
+  });
+});
+
+describe("production environment guard", () => {
+  it("refuses to boot with a localhost AUTH_URL in production", () => {
+    const source = readFileSync(path.join(process.cwd(), "src", "lib", "auth.ts"), "utf8");
+    expect(source).toContain('process.env.NODE_ENV === "production"');
+    expect(source).toContain("NEXTAUTH_URL");
+    expect(source).toMatch(/localhost\|127\\\.0\\\.0\\\.1/);
+  });
+});
