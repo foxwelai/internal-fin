@@ -57,7 +57,11 @@ model User {
 
 model Client {
   id            String   @id @default(cuid())
+  /// Who you deal with day to day — often a person or a short trading name.
   name          String
+  /// The registered entity that appears on an invoice, when it differs.
+  companyName   String?
+  website       String?
   contactPerson String?
   email         String?
   phone         String?
@@ -80,6 +84,28 @@ enum ProjectStatus {
   ON_HOLD
 }
 
+enum BillingType {
+  /// A fixed piece of work with a total agreed value.
+  ONE_TIME
+  /// A retainer or subscription that renews on an interval.
+  SUBSCRIPTION
+}
+
+enum RecurringInterval {
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+/// How a referral commission is worked out.
+enum CommissionBasis {
+  /// A share of money actually collected, so nothing is owed on an unpaid
+  /// invoice. Held in basis points to keep the arithmetic in integers.
+  PERCENT_OF_RECEIVED
+  /// A flat amount agreed up front.
+  FIXED
+}
+
 model Project {
   id                     String        @id @default(cuid())
   clientId               String
@@ -91,14 +117,32 @@ model Project {
   startDate              DateTime?     @db.Date
   expectedCompletionDate DateTime?     @db.Date
   notes                  String?
+
+  /// Where the work lives — a staging site, a repo, a brief. Optional.
+  projectUrl             String?
+
+  /// Subscription work carries a recurring price alongside the total value.
+  billingType            BillingType        @default(ONE_TIME)
+  recurringInterval      RecurringInterval?
+  recurringAmountPaise   BigInt?
+
+  /// Referral commission owed to whoever brought the project in.
+  commissionBasis        CommissionBasis?
+  commissionPayee        String?
+  /// Basis points, so 12.5% is 1250 and no float is involved.
+  commissionRateBps      Int?
+  commissionAmountPaise  BigInt?
+  commissionNotes        String?
+
   isDemo                 Boolean       @default(false)
   archivedAt             DateTime?
   createdAt              DateTime      @default(now())
   updatedAt              DateTime      @updatedAt
 
-  client    Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  schedules PaymentSchedule[]
-  receipts  Receipt[]
+  client             Client              @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  schedules          PaymentSchedule[]
+  receipts           Receipt[]
+  commissionPayments CommissionPayment[]
 
   @@index([clientId])
   @@index([status])
@@ -176,6 +220,77 @@ model ReceiptAllocation {
   @@unique([receiptId, scheduleId])
   @@index([scheduleId])
   @@map("receipt_allocations")
+}
+
+/// Money actually paid to a referrer. Kept apart from operating expenses so a
+/// commission never lands in an expense category by accident.
+model CommissionPayment {
+  id          String        @id @default(cuid())
+  projectId   String
+  amountPaise BigInt
+  paidOn      DateTime      @db.Date
+  method      PaymentMethod @default(BANK_TRANSFER)
+  reference   String?
+  notes       String?
+  createdAt   DateTime      @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([paidOn])
+  @@map("commission_payments")
+}
+
+/* -------------------------------------------------------------------------- */
+/* Borrowing                                                                   */
+/* -------------------------------------------------------------------------- */
+
+enum LoanStatus {
+  ACTIVE
+  CLOSED
+}
+
+/// Money borrowed by the business. Financing, not trading: the principal
+/// arriving and each repayment move the cash balance, and neither ever touches
+/// collections, expenses or the operating surplus.
+model Loan {
+  id              String     @id @default(cuid())
+  lender          String
+  principalPaise  BigInt
+  /// Basis points; 12.5% a year is 1250. Informational — repayments are
+  /// recorded as they happen rather than amortised.
+  interestRateBps Int?
+  receivedOn      DateTime   @db.Date
+  dueDate         DateTime?  @db.Date
+  reference       String?
+  notes           String?
+  status          LoanStatus @default(ACTIVE)
+  isDemo          Boolean    @default(false)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  payments LoanPayment[]
+
+  @@index([status])
+  @@index([receivedOn])
+  @@map("loans")
+}
+
+model LoanPayment {
+  id          String        @id @default(cuid())
+  loanId      String
+  amountPaise BigInt
+  paidOn      DateTime      @db.Date
+  method      PaymentMethod @default(BANK_TRANSFER)
+  reference   String?
+  notes       String?
+  createdAt   DateTime      @default(now())
+
+  loan Loan @relation(fields: [loanId], references: [id], onDelete: Cascade)
+
+  @@index([loanId])
+  @@index([paidOn])
+  @@map("loan_payments")
 }
 
 /* -------------------------------------------------------------------------- */

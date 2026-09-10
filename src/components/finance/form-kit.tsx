@@ -4,6 +4,7 @@ import * as React from "react";
 import { AlertCircle, Loader2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { countDigitsBefore, formatMoneyInput, offsetAfterDigits } from "@/lib/money";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -69,13 +70,54 @@ export function Field({
 
 /**
  * Amounts are typed as rupees and parsed to integer paise on the server.
- * inputMode="decimal" gets the numeric keypad on a phone without losing the
- * ability to paste "1,25,000".
+ *
+ * Digits are regrouped Indian-style as they are typed — 125000 reads back as
+ * 1,25,000 — because an unseparated seven-digit number is genuinely hard to
+ * check. The caret is anchored to the digit it was after rather than to a
+ * character offset, so inserting a separator does not shunt it sideways.
+ *
+ * Works controlled or uncontrolled: pass `value` + `onChange` and you receive
+ * the formatted text, or pass `defaultValue` and leave it alone.
  */
 export function MoneyInput({
   className,
+  value,
+  defaultValue,
+  onChange,
+  ref,
   ...props
 }: Omit<React.ComponentProps<typeof Input>, "type">) {
+  const innerRef = React.useRef<HTMLInputElement>(null);
+  const [uncontrolled, setUncontrolled] = React.useState(() =>
+    formatMoneyInput(String(defaultValue ?? "")),
+  );
+  const isControlled = value !== undefined;
+  const shown = isControlled ? String(value ?? "") : uncontrolled;
+
+  // Where the caret should land once React has painted the regrouped text.
+  const pendingCaret = React.useRef<number | null>(null);
+
+  React.useLayoutEffect(() => {
+    const input = innerRef.current;
+    if (!input || pendingCaret.current === null) return;
+    const caret = offsetAfterDigits(input.value, pendingCaret.current);
+    pendingCaret.current = null;
+    input.setSelectionRange(caret, caret);
+  }, [shown]);
+
+  const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = event.target.value;
+    const caret = event.target.selectionStart ?? raw.length;
+    pendingCaret.current = countDigitsBefore(raw, caret);
+
+    const formatted = formatMoneyInput(raw);
+    if (!isControlled) setUncontrolled(formatted);
+
+    // Hand the parent the formatted text; every parser here strips separators.
+    event.target.value = formatted;
+    onChange?.(event);
+  };
+
   return (
     <div className="relative">
       <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 font-mono text-[13px] text-faint-foreground">
@@ -83,9 +125,16 @@ export function MoneyInput({
       </span>
       <Input
         {...props}
+        ref={(node) => {
+          innerRef.current = node;
+          if (typeof ref === "function") ref(node);
+          else if (ref) ref.current = node;
+        }}
         type="text"
         inputMode="decimal"
         autoComplete="off"
+        value={shown}
+        onChange={handleChange}
         className={cn("pl-7 font-mono tabular", className)}
       />
     </div>

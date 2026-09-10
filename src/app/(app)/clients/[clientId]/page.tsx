@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { ArrowLeft, FolderPlus, Mail, Pencil, Phone, User } from "lucide-react";
+import { ArrowLeft, Building2, FolderPlus, Globe, Mail, Pencil, Phone, User } from "lucide-react";
 
 import { PageHeader, SectionHeading } from "@/components/finance/page-header";
 import { MetricCard } from "@/components/finance/metric-card";
@@ -93,6 +93,23 @@ export default async function ClientDetailPage({
         title={client.name}
         description={
           <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            {client.companyName ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Building2 className="size-3.5 text-faint-foreground" />
+                {client.companyName}
+              </span>
+            ) : null}
+            {client.website ? (
+              <a
+                href={client.website}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="inline-flex items-center gap-1.5 hover:text-brand"
+              >
+                <Globe className="size-3.5 text-faint-foreground" />
+                {client.website.replace(/^https?:\/\//, "")}
+              </a>
+            ) : null}
             {client.contactPerson ? (
               <span className="inline-flex items-center gap-1.5">
                 <User className="size-3.5 text-faint-foreground" />
@@ -125,6 +142,8 @@ export default async function ClientDetailPage({
               initial={{
                 id: client.id,
                 name: client.name,
+                companyName: client.companyName,
+                website: client.website,
                 contactPerson: client.contactPerson,
                 email: client.email,
                 phone: client.phone,

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { Building2, Download, FolderPlus, Plus, UserPlus } from "lucide-react";
+import { Building2, Download, FolderPlus, Globe, Plus, UserPlus } from "lucide-react";
 
 import { PageHeader } from "@/components/finance/page-header";
 import { EmptyState } from "@/components/finance/empty-state";
@@ -29,8 +29,9 @@ import { formatDay, formatMonthKey, toDateInputValue, todayInIST } from "@/lib/d
 import { percentOf } from "@/lib/money";
 import { loadClients, loadFinanceIndex } from "@/lib/finance/repository";
 import { loadPickerOptions } from "@/lib/finance/view-data";
+import { toProjectInitial } from "@/components/finance/options";
 import { PROJECT_STATUSES, type ProjectStatus } from "@/lib/finance/types";
-import { PROJECT_STATUS_LABELS } from "@/lib/finance/labels";
+import { PROJECT_STATUS_LABELS, RECURRING_INTERVAL_SHORT } from "@/lib/finance/labels";
 import { readParam, resolveMonth, withParams, type SearchParams } from "@/lib/finance/page-helpers";
 import { requireUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
@@ -225,6 +226,11 @@ export default async function ClientsPage({
                           >
                             {client.name}
                           </Link>
+                          {client.companyName ? (
+                            <span className="block text-[12px] text-muted-foreground">
+                              {client.companyName}
+                            </span>
+                          ) : null}
                           {client.archivedAt ? (
                             <span className="ml-2 rounded border border-border px-1 py-px text-[10px] uppercase tracking-wide text-faint-foreground">
                               Archived
@@ -242,6 +248,17 @@ export default async function ClientsPage({
                             <span className="block text-[12px] text-faint-foreground">
                               {client.email}
                             </span>
+                          ) : null}
+                          {client.website ? (
+                            <a
+                              href={client.website}
+                              target="_blank"
+                              rel="noreferrer noopener"
+                              className="mt-0.5 inline-flex items-center gap-1 text-[12px] text-brand hover:underline"
+                            >
+                              <Globe className="size-3" />
+                              {client.website.replace(/^https?:\/\//, "")}
+                            </a>
                           ) : null}
                         </TableCell>
                         <TableCell className="text-right font-mono tabular text-[13px] text-muted-foreground">
@@ -266,6 +283,8 @@ export default async function ClientsPage({
                             client={{
                               id: client.id,
                               name: client.name,
+                              companyName: client.companyName,
+                              website: client.website,
                               contactPerson: client.contactPerson,
                               email: client.email,
                               phone: client.phone,
@@ -377,11 +396,13 @@ export default async function ClientsPage({
                     <TableRow>
                       <TableHead>Project</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead className="hidden lg:table-cell">Recurring</TableHead>
                       <TableHead className="text-right">Budget</TableHead>
                       <TableHead className="text-right">Received</TableHead>
                       <TableHead className="text-right">Remaining</TableHead>
-                      <TableHead className="hidden text-right lg:table-cell">Scheduled</TableHead>
-                      <TableHead className="hidden text-right lg:table-cell">Unscheduled</TableHead>
+                      <TableHead className="hidden text-right xl:table-cell">Scheduled</TableHead>
+                      <TableHead className="hidden text-right xl:table-cell">Unscheduled</TableHead>
+                      <TableHead className="hidden text-right xl:table-cell">Commission</TableHead>
                       <TableHead className="hidden md:table-cell">Next payment</TableHead>
                       <TableHead className="w-10" />
                     </TableRow>
@@ -412,6 +433,33 @@ export default async function ClientsPage({
                           <TableCell>
                             <ProjectStatusBadge status={rollup.project.status} />
                           </TableCell>
+                          <TableCell className="hidden whitespace-nowrap lg:table-cell">
+                            {rollup.project.billingType === "SUBSCRIPTION" &&
+                            rollup.project.recurringAmountPaise !== null &&
+                            rollup.project.recurringInterval !== null ? (
+                              <>
+                                <span className="text-[13px]">
+                                  <Money
+                                    value={rollup.project.recurringAmountPaise}
+                                    className="text-[13px]"
+                                  />
+                                  <span className="text-faint-foreground">
+                                    {RECURRING_INTERVAL_SHORT[rollup.project.recurringInterval]}
+                                  </span>
+                                </span>
+                                <span className="block text-[11px] text-faint-foreground">
+                                  <Money
+                                    value={rollup.annualisedRecurringPaise}
+                                    compact
+                                    className="text-[11px]"
+                                  />{" "}
+                                  a year
+                                </span>
+                              </>
+                            ) : (
+                              <span className="text-[13px] text-faint-foreground">One-off</span>
+                            )}
+                          </TableCell>
                           <TableCell className="text-right">
                             <Money value={rollup.budgetPaise} className="text-[13px]" />
                           </TableCell>
@@ -421,19 +469,37 @@ export default async function ClientsPage({
                           <TableCell className="text-right">
                             <Money value={rollup.remainingBalancePaise} className="text-[13px]" />
                           </TableCell>
-                          <TableCell className="hidden text-right lg:table-cell">
+                          <TableCell className="hidden text-right xl:table-cell">
                             <Money
                               value={rollup.scheduledOutstandingPaise}
                               tone="muted"
                               className="text-[13px]"
                             />
                           </TableCell>
-                          <TableCell className="hidden text-right lg:table-cell">
+                          <TableCell className="hidden text-right xl:table-cell">
                             <Money
                               value={rollup.unscheduledPaise}
                               tone={rollup.unscheduledPaise > 0n ? "warning" : "muted"}
                               className="text-[13px]"
                             />
+                          </TableCell>
+                          <TableCell className="hidden text-right xl:table-cell">
+                            {rollup.project.commissionBasis ? (
+                              <>
+                                <Money
+                                  value={rollup.commissionOutstandingPaise}
+                                  tone={rollup.commissionOutstandingPaise > 0n ? "warning" : "muted"}
+                                  className="text-[13px]"
+                                />
+                                <span className="block truncate text-[11px] text-faint-foreground">
+                                  {rollup.project.commissionBasis === "PERCENT_OF_RECEIVED"
+                                    ? `${(rollup.project.commissionRateBps ?? 0) / 100}% to ${rollup.project.commissionPayee ?? "referrer"}`
+                                    : `flat to ${rollup.project.commissionPayee ?? "referrer"}`}
+                                </span>
+                              </>
+                            ) : (
+                              <span className="text-[13px] text-faint-foreground">—</span>
+                            )}
                           </TableCell>
                           <TableCell className="hidden whitespace-nowrap text-[13px] text-muted-foreground md:table-cell">
                             {rollup.nextPaymentDate ? (
@@ -458,17 +524,7 @@ export default async function ClientsPage({
                                 archived={rollup.project.archivedAt !== null}
                                 receiptCount={rollup.receiptCount}
                                 today={today}
-                                initial={{
-                                  id: option.id,
-                                  clientId: option.clientId,
-                                  name: option.name,
-                                  description: option.description,
-                                  budgetPaise: option.budgetPaise,
-                                  status: option.status,
-                                  startDate: option.startDate,
-                                  expectedCompletionDate: option.expectedCompletionDate,
-                                  notes: option.notes,
-                                }}
+                                initial={toProjectInitial(option)}
                               />
                             ) : null}
                           </TableCell>

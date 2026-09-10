@@ -21,6 +21,7 @@ import { TemplateDialog } from "@/components/dialogs/template-dialog";
 import { GenerateMonthDialog } from "@/components/dialogs/generate-month-dialog";
 import { ImportExpensesDialog } from "@/components/dialogs/import-expenses-dialog";
 import { ExpenseRowActions } from "@/components/finance/expense-row-actions";
+import { ExpenseCards } from "@/components/finance/expense-cards";
 import { TemplateRowActions } from "@/components/finance/template-row-actions";
 import { FilterChips, SearchInput } from "@/components/finance/data-toolbar";
 import { Button } from "@/components/ui/button";
@@ -317,7 +318,61 @@ export default async function ExpensesPage({
               }
             />
           ) : (
-            <TableWrap>
+            <>
+              {/* Phone: a block per expense, so the amounts are never clipped. */}
+              <div className="md:hidden">
+                <ExpenseCards
+                  rows={filtered}
+                  today={index.today}
+                  renderPay={(row) =>
+                    canWrite ? (
+                      <ExpensePaymentDialog
+                        expenseId={row.expense.id}
+                        expenseName={row.expense.name}
+                        plannedPaise={toWire(row.expense.plannedPaise)}
+                        paidPaise={toWire(row.paidPaise)}
+                        today={today}
+                      >
+                        <Button variant="outline" size="sm">
+                          <Banknote />
+                          Pay
+                        </Button>
+                      </ExpensePaymentDialog>
+                    ) : null
+                  }
+                  renderActions={(row) =>
+                    canWrite ? (
+                      <ExpenseRowActions
+                        paidPaise={toWire(row.paidPaise)}
+                        paymentCount={payments.filter((p) => p.expenseId === row.expense.id).length}
+                        archived={false}
+                        today={today}
+                        expense={{
+                          id: row.expense.id,
+                          name: row.expense.name,
+                          category: row.expense.category,
+                          plannedPaise: toWire(row.expense.plannedPaise),
+                          month: monthParam,
+                          dueDate: toDateInputValue(row.expense.dueDate) || null,
+                          isRecurring: row.expense.isRecurring,
+                          notes: null,
+                        }}
+                      />
+                    ) : null
+                  }
+                />
+                <div className="flex items-center justify-between border-t border-border px-4 py-3 text-[13px]">
+                  <span className="text-muted-foreground">
+                    {filtered.length === monthExpenses.length ? "Month total" : "Filtered total"}
+                  </span>
+                  <span className="flex items-baseline gap-3">
+                    <Money value={paidTotal} tone="positive" className="text-[13px]" />
+                    <Money value={plannedTotal} className="text-[14px] font-medium" />
+                  </span>
+                </div>
+              </div>
+
+              <TableWrap className="hidden md:block">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -465,7 +520,8 @@ export default async function ExpensesPage({
                   </TableRow>
                 </TableFooter>
               </Table>
-            </TableWrap>
+              </TableWrap>
+            </>
           )}
         </Card>
       </section>

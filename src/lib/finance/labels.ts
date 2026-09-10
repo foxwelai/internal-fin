@@ -1,5 +1,9 @@
 import type {
+  BillingType,
   CashMovementType,
+  CommissionBasis,
+  LoanStatus,
+  RecurringInterval,
   ExpenseCategory,
   PaymentMethod,
   ProjectStatus,
@@ -45,6 +49,34 @@ export const CASH_MOVEMENT_LABELS: Record<CashMovementType, string> = {
   OWNER_WITHDRAWAL: "Owner withdrawal",
   TRANSFER_IN: "Transfer in",
   TRANSFER_OUT: "Transfer out",
+};
+
+export const BILLING_TYPE_LABELS: Record<BillingType, string> = {
+  ONE_TIME: "One-off",
+  SUBSCRIPTION: "Subscription",
+};
+
+export const RECURRING_INTERVAL_LABELS: Record<RecurringInterval, string> = {
+  MONTHLY: "per month",
+  QUARTERLY: "per quarter",
+  YEARLY: "per year",
+};
+
+/** Short form for a table column, where the row already says what it is. */
+export const RECURRING_INTERVAL_SHORT: Record<RecurringInterval, string> = {
+  MONTHLY: "/mo",
+  QUARTERLY: "/qtr",
+  YEARLY: "/yr",
+};
+
+export const COMMISSION_BASIS_LABELS: Record<CommissionBasis, string> = {
+  PERCENT_OF_RECEIVED: "Share of money collected",
+  FIXED: "Fixed amount",
+};
+
+export const LOAN_STATUS_LABELS: Record<LoanStatus, string> = {
+  ACTIVE: "Active",
+  CLOSED: "Closed",
 };
 
 /** Tighter names for dense contexts — donut legends, narrow table columns. */

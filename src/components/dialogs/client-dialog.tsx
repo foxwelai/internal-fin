@@ -19,10 +19,14 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, FormAlert, SubmitButton } from "@/components/finance/form-kit";
 import { useActionDialog } from "@/components/finance/use-action-dialog";
+import { useFormDraft } from "@/components/finance/use-form-draft";
+import { DraftNotice } from "@/components/finance/draft-notice";
 
 export type ClientInitial = {
   id: string;
   name: string;
+  companyName: string | null;
+  website: string | null;
   contactPerson: string | null;
   email: string | null;
   phone: string | null;
@@ -36,7 +40,10 @@ export function ClientDialog({
   children: React.ReactNode;
   initial?: ClientInitial;
 }) {
-  const { state, formAction, pending, open, setOpen } = useActionDialog(saveClient);
+  const { formRef, restored, clear, discard } = useFormDraft(`client:${initial?.id ?? "new"}`);
+  const { state, formAction, pending, open, setOpen } = useActionDialog(saveClient, {
+    onSuccess: clear,
+  });
   const editing = Boolean(initial);
 
   return (
@@ -50,10 +57,11 @@ export function ClientDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form action={formAction} className="contents">
+        <form action={formAction} ref={formRef} className="contents">
           {initial ? <input type="hidden" name="id" value={initial.id} /> : null}
 
           <DialogBody className="space-y-4">
+            <DraftNotice restored={restored} onDiscard={discard} />
             <FormAlert state={state} />
 
             <Field name="name" label="Client or company name" required errors={state.fieldErrors}>
@@ -61,12 +69,44 @@ export function ClientDialog({
                 <Input
                   {...props}
                   defaultValue={initial?.name ?? ""}
-                  placeholder="Northwind Retail Pvt Ltd"
+                  placeholder="Northwind Retail"
                   required
                   autoFocus
                 />
               )}
             </Field>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field
+                name="companyName"
+                label="Company name"
+                errors={state.fieldErrors}
+                hint="The registered entity, if it differs from the name above."
+              >
+                {(props) => (
+                  <Input
+                    {...props}
+                    defaultValue={initial?.companyName ?? ""}
+                    placeholder="Northwind Retail Pvt Ltd"
+                  />
+                )}
+              </Field>
+              <Field
+                name="website"
+                label="Website"
+                errors={state.fieldErrors}
+                hint="Domain is enough — foxwel.ai."
+              >
+                {(props) => (
+                  <Input
+                    {...props}
+                    inputMode="url"
+                    defaultValue={initial?.website ?? ""}
+                    placeholder="northwind.example"
+                  />
+                )}
+              </Field>
+            </div>
 
             <Field name="contactPerson" label="Contact person" errors={state.fieldErrors}>
               {(props) => (

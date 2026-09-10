@@ -25,6 +25,8 @@ import {
   SubmitButton,
 } from "@/components/finance/form-kit";
 import { useActionDialog } from "@/components/finance/use-action-dialog";
+import { useFormDraft } from "@/components/finance/use-form-draft";
+import { DraftNotice } from "@/components/finance/draft-notice";
 import { Money } from "@/components/finance/money";
 import { formatForCsv } from "@/lib/money";
 
@@ -61,7 +63,10 @@ export function ScheduleDialog({
   initial?: ScheduleInitial;
   today: string;
 }) {
-  const { state, formAction, pending, open, setOpen } = useActionDialog(saveSchedule);
+  const { formRef, restored, clear, discard } = useFormDraft(`schedule:${initial?.id ?? `new:${projectId}`}`);
+  const { state, formAction, pending, open, setOpen } = useActionDialog(saveSchedule, {
+    onSuccess: clear,
+  });
   const headroom = BigInt(availablePaise) + BigInt(initial?.amountPaise ?? 0);
 
   return (
@@ -76,11 +81,12 @@ export function ScheduleDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form action={formAction} className="contents">
+        <form action={formAction} ref={formRef} className="contents">
           {initial ? <input type="hidden" name="id" value={initial.id} /> : null}
           <input type="hidden" name="projectId" value={projectId} />
 
           <DialogBody className="space-y-4">
+            <DraftNotice restored={restored} onDiscard={discard} />
             <FormAlert state={state} />
 
             <FormReadout

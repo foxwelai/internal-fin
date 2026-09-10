@@ -23,6 +23,8 @@ export async function saveClient(_prev: ActionState, formData: FormData): Promis
     const parsed = clientSchema.safeParse({
       id: formValue(formData, "id") || undefined,
       name: formValue(formData, "name"),
+      companyName: formValue(formData, "companyName"),
+      website: formValue(formData, "website"),
       contactPerson: formValue(formData, "contactPerson"),
       email: formValue(formData, "email"),
       phone: formValue(formData, "phone"),

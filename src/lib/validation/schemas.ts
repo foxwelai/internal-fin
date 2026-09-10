@@ -1,10 +1,13 @@
 import { z } from "zod";
 
 import {
+  BILLING_TYPES,
   CASH_MOVEMENT_TYPES,
+  COMMISSION_BASES,
   EXPENSE_CATEGORIES,
   PAYMENT_METHODS,
   PROJECT_STATUSES,
+  RECURRING_INTERVALS,
 } from "@/lib/finance/types";
 
 import {
@@ -17,6 +20,7 @@ import {
   optionalMoneyField,
   optionalEmail,
   optionalText,
+  optionalUrlField,
   requiredText,
 } from "./common";
 
@@ -25,6 +29,8 @@ import {
 export const clientSchema = z.object({
   id: idField.optional(),
   name: requiredText("Client name", 120),
+  companyName: optionalText(160),
+  website: optionalUrlField("Website"),
   contactPerson: optionalText(120),
   email: optionalEmail,
   phone: optionalText(40),
@@ -32,6 +38,23 @@ export const clientSchema = z.object({
 });
 
 /* -------------------------------- Projects ------------------------------- */
+
+/** Percentages arrive as text like "12.5" and are stored as basis points. */
+const percentField = (label: string) =>
+  z.string().transform((value, ctx): number | null => {
+    const trimmed = value.trim().replace(/%$/, "");
+    if (trimmed === "") return null;
+    if (!/^\d{1,3}(\.\d{1,2})?$/.test(trimmed)) {
+      ctx.addIssue({ code: "custom", message: `${label} must be a percentage, e.g. 12.5` });
+      return z.NEVER;
+    }
+    const bps = Math.round(Number(trimmed) * 100);
+    if (bps <= 0 || bps > 10_000) {
+      ctx.addIssue({ code: "custom", message: `${label} must be between 0 and 100` });
+      return z.NEVER;
+    }
+    return bps;
+  });
 
 export const projectSchema = z
   .object({
@@ -43,7 +66,22 @@ export const projectSchema = z
     status: z.enum(PROJECT_STATUSES),
     startDate: optionalDateField("Start date"),
     expectedCompletionDate: optionalDateField("Expected completion date"),
+    projectUrl: optionalUrlField("Project link"),
     notes: optionalText(),
+
+    billingType: z.enum(BILLING_TYPES),
+    recurringInterval: z
+      .union([z.enum(RECURRING_INTERVALS), z.literal("")])
+      .transform((value) => (value === "" ? null : value)),
+    recurringAmount: optionalMoneyField("Recurring amount"),
+
+    commissionBasis: z
+      .union([z.enum(COMMISSION_BASES), z.literal("")])
+      .transform((value) => (value === "" ? null : value)),
+    commissionPayee: optionalText(160),
+    commissionPercent: percentField("Commission rate"),
+    commissionAmount: optionalMoneyField("Commission amount"),
+    commissionNotes: optionalText(600),
   })
   .refine(
     (value) =>
@@ -51,7 +89,24 @@ export const projectSchema = z
       !value.expectedCompletionDate ||
       value.expectedCompletionDate >= value.startDate,
     { message: "Expected completion cannot be before the start date", path: ["expectedCompletionDate"] },
-  );
+  )
+  .refine(
+    (value) =>
+      value.billingType !== "SUBSCRIPTION" ||
+      (value.recurringInterval !== null && value.recurringAmount !== null),
+    {
+      message: "A subscription needs a recurring amount and how often it renews",
+      path: ["recurringAmount"],
+    },
+  )
+  .refine(
+    (value) => value.commissionBasis !== "PERCENT_OF_RECEIVED" || value.commissionPercent !== null,
+    { message: "Enter the commission rate", path: ["commissionPercent"] },
+  )
+  .refine((value) => value.commissionBasis !== "FIXED" || value.commissionAmount !== null, {
+    message: "Enter the commission amount",
+    path: ["commissionAmount"],
+  });
 
 /* --------------------------- Scheduled payments -------------------------- */
 
@@ -160,3 +215,42 @@ export type ProjectInput = z.infer<typeof projectSchema>;
 export type ScheduleInput = z.infer<typeof scheduleSchema>;
 export type ReceiptInput = z.infer<typeof receiptSchema>;
 export type ExpenseInput = z.infer<typeof expenseSchema>;
+
+export const commissionPaymentSchema = z.object({
+  projectId: idField,
+  amount: moneyField("Amount paid"),
+  paidOn: dateField("Payment date"),
+  method: z.enum(PAYMENT_METHODS),
+  reference: optionalText(80),
+  notes: optionalText(600),
+});
+
+export const loanSchema = z.object({
+  id: idField.optional(),
+  lender: requiredText("Lender", 160),
+  principal: moneyField("Principal"),
+  interestPercent: z
+    .string()
+    .transform((value, ctx): number | null => {
+      const trimmed = value.trim().replace(/%$/, "");
+      if (trimmed === "") return null;
+      if (!/^\d{1,3}(\.\d{1,2})?$/.test(trimmed)) {
+        ctx.addIssue({ code: "custom", message: "Interest rate must be a percentage, e.g. 12.5" });
+        return z.NEVER;
+      }
+      return Math.round(Number(trimmed) * 100);
+    }),
+  receivedOn: dateField("Date received"),
+  dueDate: optionalDateField("Repay by"),
+  reference: optionalText(80),
+  notes: optionalText(600),
+});
+
+export const loanPaymentSchema = z.object({
+  loanId: idField,
+  amount: moneyField("Repayment amount"),
+  paidOn: dateField("Payment date"),
+  method: z.enum(PAYMENT_METHODS),
+  reference: optionalText(80),
+  notes: optionalText(600),
+});

@@ -110,3 +110,35 @@ export const optionalMoneyField = (label: string) =>
       return z.NEVER;
     }
   });
+
+/**
+ * A website typed however people actually type one: "foxwel.ai",
+ * "www.foxwel.ai", "https://foxwel.ai/work". Stored with a scheme so it can be
+ * linked directly, and rejected only when it is not a plausible host at all.
+ */
+export const optionalUrlField = (label: string) =>
+  z.string().transform((value, ctx): string | null => {
+    const trimmed = value.trim();
+    if (trimmed === "") return null;
+
+    const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    let parsed: URL;
+    try {
+      parsed = new URL(withScheme);
+    } catch {
+      ctx.addIssue({ code: "custom", message: `${label} does not look like a web address` });
+      return z.NEVER;
+    }
+
+    // A bare word is a typo, not a domain.
+    if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(parsed.hostname) && parsed.hostname !== "localhost") {
+      ctx.addIssue({ code: "custom", message: `${label} needs a domain, for example foxwel.ai` });
+      return z.NEVER;
+    }
+    if (withScheme.length > 300) {
+      ctx.addIssue({ code: "custom", message: `${label} is too long` });
+      return z.NEVER;
+    }
+
+    return parsed.toString().replace(/\/$/, "");
+  });

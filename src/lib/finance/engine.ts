@@ -40,10 +40,14 @@ import {
   type CategoryBreakdownRow,
   type ClientTotalsRow,
   type EngineExpense,
+  type EngineLoan,
+  type EngineProject,
   type EngineSchedule,
   type ExpenseCategory,
   type ExpenseRollup,
   type FinanceDataset,
+  type LoanRollup,
+  type LoanTotals,
   type MonthComparison,
   type MonthSummary,
   type OverdueBucket,
@@ -79,6 +83,27 @@ export function indexDataset(dataset: FinanceDataset) {
       allocation.receiptId,
       (allocatedByReceiptId.get(allocation.receiptId) ?? 0n) + allocation.amountPaise,
     );
+  }
+
+  const commissionPaidByProjectId = new Map<string, Paise>();
+  for (const payment of dataset.commissionPayments) {
+    commissionPaidByProjectId.set(
+      payment.projectId,
+      (commissionPaidByProjectId.get(payment.projectId) ?? 0n) + payment.amountPaise,
+    );
+  }
+
+  const loanRepaidByLoanId = new Map<string, Paise>();
+  for (const payment of dataset.loanPayments) {
+    loanRepaidByLoanId.set(
+      payment.loanId,
+      (loanRepaidByLoanId.get(payment.loanId) ?? 0n) + payment.amountPaise,
+    );
+  }
+
+  const loanRollups = new Map<string, LoanRollup>();
+  for (const loan of dataset.loans) {
+    loanRollups.set(loan.id, rollUpLoan(loan, loanRepaidByLoanId.get(loan.id) ?? 0n, today));
   }
 
   const paidByExpenseId = new Map<string, Paise>();
@@ -131,6 +156,7 @@ export function indexDataset(dataset: FinanceDataset) {
         receiptsByProjectId.get(project.id) ?? [],
         scheduleRollups,
         receiptRollups,
+        commissionPaidByProjectId.get(project.id) ?? 0n,
       ),
     );
   }
@@ -143,6 +169,7 @@ export function indexDataset(dataset: FinanceDataset) {
     scheduleRollups,
     receiptRollups,
     expenseRollups,
+    loanRollups,
     schedulesByProjectId,
     receiptsByProjectId,
     expensesByPeriod,
@@ -181,6 +208,54 @@ export function rollUpSchedule(schedule: EngineSchedule, allocatedPaise: Paise, 
   return { schedule, allocatedPaise, outstandingPaise, state, daysOverdue };
 }
 
+export function rollUpLoan(loan: EngineLoan, repaidPaise: Paise, today: Date): LoanRollup {
+  const outstandingPaise = clampToZero(loan.principalPaise - repaidPaise);
+  return {
+    loan,
+    repaidPaise,
+    outstandingPaise,
+    paymentCount: 0,
+    isOverdue:
+      outstandingPaise > 0n &&
+      loan.dueDate !== null &&
+      compareDates(loan.dueDate, today) < 0 &&
+      loan.status === "ACTIVE",
+  };
+}
+
+/**
+ * What the referrer has earned.
+ *
+ * A percentage is applied to money *actually received*, never to the contract
+ * value, so nothing is owed on an invoice the client has not paid. Basis points
+ * keep it in integer arithmetic: 12.5% is 1250, and the divide by 10,000 is the
+ * last operation, so at most one paisa is lost to truncation.
+ */
+export function commissionDueOn(project: EngineProject, receivedPaise: Paise): Paise {
+  if (project.commissionBasis === "FIXED") {
+    return project.commissionAmountPaise ?? 0n;
+  }
+  if (project.commissionBasis === "PERCENT_OF_RECEIVED") {
+    const bps = BigInt(project.commissionRateBps ?? 0);
+    return (receivedPaise * bps) / 10_000n;
+  }
+  return 0n;
+}
+
+/** A recurring price restated as a yearly figure, for like-for-like comparison. */
+export function annualiseRecurring(project: EngineProject): Paise {
+  const amount = project.recurringAmountPaise;
+  if (project.billingType !== "SUBSCRIPTION" || !amount || !project.recurringInterval) return 0n;
+  switch (project.recurringInterval) {
+    case "MONTHLY":
+      return amount * 12n;
+    case "QUARTERLY":
+      return amount * 4n;
+    case "YEARLY":
+      return amount;
+  }
+}
+
 export function rollUpExpense(expense: EngineExpense, paidPaise: Paise, today: Date): ExpenseRollup {
   const outstandingPaise = clampToZero(expense.plannedPaise - paidPaise);
   const daysOverdue =
@@ -201,6 +276,7 @@ function rollUpProject(
   receipts: readonly { id: string; amountPaise: Paise }[],
   scheduleRollups: Map<string, ScheduleRollup>,
   receiptRollups: Map<string, ReceiptRollup>,
+  commissionPaidPaise: Paise,
 ): ProjectRollup {
   const receivedPaise = sumBy(receipts, (receipt) => receipt.amountPaise);
 
@@ -246,7 +322,41 @@ function rollUpProject(
     scheduleCount: rollups.length,
     receiptCount: receipts.length,
     isForecastable: isForecastable(project),
+
+    commissionDuePaise: commissionDueOn(project, receivedPaise),
+    commissionPaidPaise,
+    commissionOutstandingPaise: clampToZero(
+      commissionDueOn(project, receivedPaise) - commissionPaidPaise,
+    ),
+    annualisedRecurringPaise: annualiseRecurring(project),
   };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Loans                                                                       */
+/* -------------------------------------------------------------------------- */
+
+export function loanTotals(index: FinanceIndex): LoanTotals {
+  const rollups = [...index.loanRollups.values()];
+  const active = rollups.filter((rollup) => rollup.loan.status === "ACTIVE");
+  return {
+    activeCount: active.length,
+    principalPaise: sumBy(active, (rollup) => rollup.loan.principalPaise),
+    repaidPaise: sumBy(rollups, (rollup) => rollup.repaidPaise),
+    outstandingPaise: sumBy(active, (rollup) => rollup.outstandingPaise),
+    overduePaise: sumBy(
+      active.filter((rollup) => rollup.isOverdue),
+      (rollup) => rollup.outstandingPaise,
+    ),
+  };
+}
+
+/** Referral commission owed across every live project. */
+export function commissionsPayablePaise(index: FinanceIndex): Paise {
+  return sumBy(
+    [...index.projectRollups.values()].filter((rollup) => rollup.project.archivedAt === null),
+    (rollup) => rollup.commissionOutstandingPaise,
+  );
 }
 
 export function isForecastable(project: {
@@ -299,7 +409,26 @@ export function summariseMonth(index: FinanceIndex, month: MonthKey): MonthSumma
   // Cash out is dated by when it was paid, not by which month it was budgeted
   // to — a September payment for an August bill hits September's cash.
   const paymentsInMonth = dataset.expensePayments.filter((payment) => isInMonth(payment.paidOn, month));
-  const actualCashOutflowPaise = sumBy(paymentsInMonth, (payment) => payment.amountPaise);
+  const expenseOutflowPaise = sumBy(paymentsInMonth, (payment) => payment.amountPaise);
+
+  // Referral commissions are a genuine operating cost, but they sit outside the
+  // expense budget, so they are counted separately and then added in.
+  const commissionsInMonth = dataset.commissionPayments.filter((payment) =>
+    isInMonth(payment.paidOn, month),
+  );
+  const commissionOutflowPaise = sumBy(commissionsInMonth, (payment) => payment.amountPaise);
+  const actualCashOutflowPaise = expenseOutflowPaise + commissionOutflowPaise;
+
+  // Financing. Neither figure touches the operating result — they move only the
+  // cash balance.
+  const loanDrawnPaise = sumBy(
+    dataset.loans.filter((loan) => isInMonth(loan.receivedOn, month)),
+    (loan) => loan.principalPaise,
+  );
+  const loanRepaidPaise = sumBy(
+    dataset.loanPayments.filter((payment) => isInMonth(payment.paidOn, month)),
+    (payment) => payment.amountPaise,
+  );
 
   const outstandingExpensesPaise = sumBy(
     expensesForMonth
@@ -321,9 +450,13 @@ export function summariseMonth(index: FinanceIndex, month: MonthKey): MonthSumma
     expectedAdditionalCollectionsPaise,
     projectedCollectionsPaise,
     plannedExpensesPaise,
+    expenseOutflowPaise,
+    commissionOutflowPaise,
     actualCashOutflowPaise,
     outstandingExpensesPaise,
     projectedCashOutflowPaise,
+    loanDrawnPaise,
+    loanRepaidPaise,
     actualSurplusPaise,
     projectedSurplusPaise,
     // Zero collections yields null, which every caller renders as "—".
@@ -333,7 +466,12 @@ export function summariseMonth(index: FinanceIndex, month: MonthKey): MonthSumma
     receiptCount: receiptsInMonth.length,
     expenseCount: expensesForMonth.length,
     isEmpty:
-      receiptsInMonth.length === 0 && expensesForMonth.length === 0 && paymentsInMonth.length === 0,
+      receiptsInMonth.length === 0 &&
+      expensesForMonth.length === 0 &&
+      paymentsInMonth.length === 0 &&
+      commissionsInMonth.length === 0 &&
+      loanDrawnPaise === 0n &&
+      loanRepaidPaise === 0n,
   };
 }
 
@@ -515,10 +653,27 @@ export function cashPositionAsOf(index: FinanceIndex, asOf: Date): CashPosition 
     index.dataset.receipts.filter((receipt) => inWindow(receipt.receivedOn)),
     (receipt) => receipt.amountPaise,
   );
-  const operatingOutflowPaise = sumBy(
-    index.dataset.expensePayments.filter((payment) => inWindow(payment.paidOn)),
-    (payment) => payment.amountPaise,
-  );
+  const operatingOutflowPaise =
+    sumBy(
+      index.dataset.expensePayments.filter((payment) => inWindow(payment.paidOn)),
+      (payment) => payment.amountPaise,
+    ) +
+    sumBy(
+      index.dataset.commissionPayments.filter((payment) => inWindow(payment.paidOn)),
+      (payment) => payment.amountPaise,
+    );
+
+  // Borrowing moves cash without being income or cost: principal in, repayments
+  // out, reported on its own line so it can never flatter the operating result.
+  const financingNetPaise =
+    sumBy(
+      index.dataset.loans.filter((loan) => inWindow(loan.receivedOn)),
+      (loan) => loan.principalPaise,
+    ) -
+    sumBy(
+      index.dataset.loanPayments.filter((payment) => inWindow(payment.paidOn)),
+      (payment) => payment.amountPaise,
+    );
 
   let nonOperatingNetPaise = 0n;
   for (const movement of index.dataset.cashMovements) {
@@ -531,9 +686,14 @@ export function cashPositionAsOf(index: FinanceIndex, asOf: Date): CashPosition 
     effectiveDate: opening.effectiveDate,
     operatingInflowPaise,
     operatingOutflowPaise,
+    financingNetPaise,
     nonOperatingNetPaise,
     closingBalancePaise:
-      opening.amountPaise + operatingInflowPaise - operatingOutflowPaise + nonOperatingNetPaise,
+      opening.amountPaise +
+      operatingInflowPaise -
+      operatingOutflowPaise +
+      financingNetPaise +
+      nonOperatingNetPaise,
     asOf,
   };
 }

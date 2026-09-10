@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  annualiseRecurring,
   autoAllocate,
   cashPositionAsOf,
+  commissionDueOn,
+  commissionsPayablePaise,
+  loanTotals,
   checkAllocation,
   checkReceiptWithinBudget,
   compareToPreviousMonth,
@@ -53,6 +57,13 @@ function project(overrides: Partial<EngineProject> & { id: string }): EngineProj
     startDate: date("2026-09-01"),
     expectedCompletionDate: date("2026-11-30"),
     archivedAt: null,
+    billingType: "ONE_TIME",
+    recurringInterval: null,
+    recurringAmountPaise: null,
+    commissionBasis: null,
+    commissionPayee: null,
+    commissionRateBps: null,
+    commissionAmountPaise: null,
     ...overrides,
   };
 }
@@ -102,6 +113,9 @@ function dataset(overrides: Partial<FinanceDataset> = {}): FinanceDataset {
     allocations: [],
     expenses: [],
     expensePayments: [],
+    commissionPayments: [],
+    loans: [],
+    loanPayments: [],
     cashMovements: [],
     openingBalance: null,
     today: TODAY,
@@ -717,5 +731,242 @@ describe("surplus margin", () => {
     const summary = summariseMonth(index, SEPTEMBER);
     expect(summary.actualSurplusPaise).toBe(rupees(50_000));
     expect(summary.surplusMarginPercent).toBe(25);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Referral commission                                                         */
+/* -------------------------------------------------------------------------- */
+
+describe("referral commission", () => {
+  it("charges a percentage on money collected, never on the contract value", () => {
+    const index = build({
+      projects: [
+        project({
+          id: "project-1",
+          budgetPaise: rupees(100_000),
+          commissionBasis: "PERCENT_OF_RECEIVED",
+          commissionPayee: "Priya",
+          commissionRateBps: 1000, // 10%
+        }),
+      ],
+      receipts: [receipt({ id: "r-1", amountPaise: rupees(30_000) })],
+    });
+
+    const rollup = index.projectRollups.get("project-1")!;
+    // 10% of the ₹30,000 collected, not of the ₹1,00,000 agreed.
+    expect(rollup.commissionDuePaise).toBe(rupees(3_000));
+    expect(rollup.commissionOutstandingPaise).toBe(rupees(3_000));
+  });
+
+  it("handles a fractional rate without floating point", () => {
+    const withRate = (bps: number, received: bigint) =>
+      commissionDueOn(project({ id: "p", commissionBasis: "PERCENT_OF_RECEIVED", commissionRateBps: bps }), received);
+
+    // 12.5% of ₹1,23,456.78
+    expect(withRate(1250, 12_345_678n)).toBe(1_543_209n);
+    // A rate that does not divide evenly truncates by at most one paisa.
+    expect(withRate(333, 100n)).toBe(3n);
+  });
+
+  it("uses the flat amount when the deal was a fixed fee", () => {
+    const index = build({
+      projects: [
+        project({
+          id: "project-1",
+          commissionBasis: "FIXED",
+          commissionAmountPaise: rupees(15_000),
+        }),
+      ],
+      receipts: [receipt({ id: "r-1", amountPaise: rupees(30_000) })],
+    });
+    expect(index.projectRollups.get("project-1")!.commissionDuePaise).toBe(rupees(15_000));
+  });
+
+  it("owes nothing when no commission was agreed", () => {
+    const index = build({
+      projects: [project({ id: "project-1" })],
+      receipts: [receipt({ id: "r-1", amountPaise: rupees(50_000) })],
+    });
+    expect(index.projectRollups.get("project-1")!.commissionDuePaise).toBe(0n);
+    expect(commissionsPayablePaise(index)).toBe(0n);
+  });
+
+  it("nets off what has already been paid to the referrer", () => {
+    const index = build({
+      projects: [
+        project({
+          id: "project-1",
+          commissionBasis: "PERCENT_OF_RECEIVED",
+          commissionRateBps: 1000,
+        }),
+      ],
+      receipts: [receipt({ id: "r-1", amountPaise: rupees(80_000) })],
+      commissionPayments: [
+        { id: "c-1", projectId: "project-1", amountPaise: rupees(5_000), paidOn: date("2026-09-09") },
+      ],
+    });
+
+    const rollup = index.projectRollups.get("project-1")!;
+    expect(rollup.commissionDuePaise).toBe(rupees(8_000));
+    expect(rollup.commissionPaidPaise).toBe(rupees(5_000));
+    expect(rollup.commissionOutstandingPaise).toBe(rupees(3_000));
+    expect(commissionsPayablePaise(index)).toBe(rupees(3_000));
+  });
+
+  it("counts a commission payment as operating cash out, separately from expenses", () => {
+    const index = build({
+      projects: [project({ id: "project-1" })],
+      receipts: [receipt({ id: "r-1", amountPaise: rupees(100_000), receivedOn: date("2026-09-02") })],
+      expenses: [expense({ id: "e-1", plannedPaise: rupees(20_000) })],
+      expensePayments: [
+        { id: "p-1", expenseId: "e-1", amountPaise: rupees(20_000), paidOn: date("2026-09-05") },
+      ],
+      commissionPayments: [
+        { id: "c-1", projectId: "project-1", amountPaise: rupees(10_000), paidOn: date("2026-09-06") },
+      ],
+    });
+
+    const summary = summariseMonth(index, SEPTEMBER);
+    expect(summary.expenseOutflowPaise).toBe(rupees(20_000));
+    expect(summary.commissionOutflowPaise).toBe(rupees(10_000));
+    expect(summary.actualCashOutflowPaise).toBe(rupees(30_000));
+    // The surplus is reduced by the commission, because the money really left.
+    expect(summary.actualSurplusPaise).toBe(rupees(70_000));
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Subscriptions                                                               */
+/* -------------------------------------------------------------------------- */
+
+describe("subscription projects", () => {
+  it("annualises each interval", () => {
+    const sub = (interval: "MONTHLY" | "QUARTERLY" | "YEARLY", amount: bigint) =>
+      annualiseRecurring(
+        project({
+          id: "p",
+          billingType: "SUBSCRIPTION",
+          recurringInterval: interval,
+          recurringAmountPaise: amount,
+        }),
+      );
+
+    expect(sub("MONTHLY", rupees(10_000))).toBe(rupees(120_000));
+    expect(sub("QUARTERLY", rupees(30_000))).toBe(rupees(120_000));
+    expect(sub("YEARLY", rupees(120_000))).toBe(rupees(120_000));
+  });
+
+  it("annualises to nothing for one-off work, even if an amount is left behind", () => {
+    expect(
+      annualiseRecurring(
+        project({
+          id: "p",
+          billingType: "ONE_TIME",
+          recurringInterval: "MONTHLY",
+          recurringAmountPaise: rupees(10_000),
+        }),
+      ),
+    ).toBe(0n);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Loans                                                                       */
+/* -------------------------------------------------------------------------- */
+
+describe("loans", () => {
+  const loan = (overrides: Partial<Parameters<typeof build>[0]> = {}) =>
+    build({
+      loans: [
+        {
+          id: "loan-1",
+          lender: "Working capital line",
+          principalPaise: rupees(500_000),
+          interestRateBps: 1200,
+          receivedOn: date("2026-07-10"),
+          dueDate: date("2027-07-10"),
+          status: "ACTIVE",
+        },
+      ],
+      ...overrides,
+    });
+
+  it("tracks what is still owed", () => {
+    const index = loan({
+      loanPayments: [
+        { id: "lp-1", loanId: "loan-1", amountPaise: rupees(80_000), paidOn: date("2026-08-10") },
+        { id: "lp-2", loanId: "loan-1", amountPaise: rupees(80_000), paidOn: date("2026-09-10") },
+      ],
+    });
+
+    const totals = loanTotals(index);
+    expect(totals.principalPaise).toBe(rupees(500_000));
+    expect(totals.repaidPaise).toBe(rupees(160_000));
+    expect(totals.outstandingPaise).toBe(rupees(340_000));
+    expect(totals.activeCount).toBe(1);
+  });
+
+  it("flags a loan past its due date with money still owed", () => {
+    const index = build({
+      loans: [
+        {
+          id: "loan-1",
+          lender: "Old bridge",
+          principalPaise: rupees(100_000),
+          interestRateBps: null,
+          receivedOn: date("2026-01-10"),
+          dueDate: date("2026-08-01"),
+          status: "ACTIVE",
+        },
+      ],
+    });
+    expect(index.loanRollups.get("loan-1")!.isOverdue).toBe(true);
+    expect(loanTotals(index).overduePaise).toBe(rupees(100_000));
+  });
+
+  it("keeps borrowing out of the operating result entirely", () => {
+    const index = loan({
+      receipts: [receipt({ id: "r-1", amountPaise: rupees(60_000), receivedOn: date("2026-09-03") })],
+      loans: [
+        {
+          id: "loan-1",
+          lender: "Working capital line",
+          principalPaise: rupees(500_000),
+          interestRateBps: 1200,
+          receivedOn: date("2026-09-05"),
+          dueDate: null,
+          status: "ACTIVE",
+        },
+      ],
+      loanPayments: [
+        { id: "lp-1", loanId: "loan-1", amountPaise: rupees(25_000), paidOn: date("2026-09-20") },
+      ],
+    });
+
+    const summary = summariseMonth(index, SEPTEMBER);
+    // ₹5,00,000 arrived, but it is borrowing, not revenue.
+    expect(summary.actualCollectionsPaise).toBe(rupees(60_000));
+    expect(summary.actualCashOutflowPaise).toBe(0n);
+    expect(summary.actualSurplusPaise).toBe(rupees(60_000));
+    // It is reported on its own lines.
+    expect(summary.loanDrawnPaise).toBe(rupees(500_000));
+    expect(summary.loanRepaidPaise).toBe(rupees(25_000));
+  });
+
+  it("moves the cash balance by the net of drawdowns and repayments", () => {
+    const index = loan({
+      openingBalance: { amountPaise: rupees(100_000), effectiveDate: date("2026-07-01") },
+      loanPayments: [
+        { id: "lp-1", loanId: "loan-1", amountPaise: rupees(50_000), paidOn: date("2026-08-10") },
+      ],
+    });
+
+    const position = cashPositionAsOf(index, date("2026-09-30"))!;
+    expect(position.financingNetPaise).toBe(rupees(450_000));
+    expect(position.closingBalancePaise).toBe(rupees(550_000));
+    // Financing is on its own line, not folded into operating flows.
+    expect(position.operatingInflowPaise).toBe(0n);
+    expect(position.operatingOutflowPaise).toBe(0n);
   });
 });

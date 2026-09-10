@@ -1,11 +1,13 @@
 "use client";
 
+import * as React from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { MoreHorizontal } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { NAV_ITEMS, isNavItemActive } from "@/lib/nav";
+import { NAV_ITEMS, SECONDARY_NAV_ITEMS, isNavItemActive } from "@/lib/nav";
 
 export function Sidebar({ footer }: { footer?: React.ReactNode }) {
   const pathname = usePathname();
@@ -72,35 +74,101 @@ export function Sidebar({ footer }: { footer?: React.ReactNode }) {
   );
 }
 
+/**
+ * The phone's bottom bar. Four destinations fit comfortably; everything else
+ * lives behind "More" rather than being squeezed out of reach.
+ */
 export function MobileNav() {
   const pathname = usePathname();
-  const items = NAV_ITEMS.filter((item) => item.primary);
+  const [moreOpen, setMoreOpen] = React.useState(false);
+  const primary = NAV_ITEMS.filter((item) => item.primary);
+  const secondaryActive = SECONDARY_NAV_ITEMS.some((item) => isNavItemActive(pathname, item.href));
+
+  // Close the sheet when a link has taken us somewhere. Adjusting during
+  // render rather than in an effect, so there is no flash of the open sheet
+  // over the new page.
+  const [sheetPathname, setSheetPathname] = React.useState(pathname);
+  if (sheetPathname !== pathname) {
+    setSheetPathname(pathname);
+    setMoreOpen(false);
+  }
+
+  const itemClass = (active: boolean) =>
+    cn(
+      "flex w-full flex-col items-center gap-1 px-1 pb-2 pt-2.5 text-[10px] font-medium transition-colors",
+      active ? "text-brand" : "text-faint-foreground",
+    );
 
   return (
-    <nav
-      aria-label="Main"
-      className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 backdrop-blur-md lg:hidden"
-    >
-      <ul className="grid grid-cols-5 pb-[env(safe-area-inset-bottom)]">
-        {items.map((item) => {
-          const active = isNavItemActive(pathname, item.href);
-          return (
-            <li key={item.href}>
-              <Link
-                href={item.href}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "flex flex-col items-center gap-1 px-1 pb-2 pt-2.5 text-[10px] font-medium transition-colors",
-                  active ? "text-brand" : "text-faint-foreground",
-                )}
-              >
-                <item.icon className="size-[18px]" />
-                <span className="truncate">{item.shortLabel}</span>
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
-    </nav>
+    <>
+      {moreOpen ? (
+        <div
+          className="fixed inset-0 z-30 bg-black/60 backdrop-blur-[2px] lg:hidden"
+          onClick={() => setMoreOpen(false)}
+          aria-hidden
+        />
+      ) : null}
+
+      <nav
+        aria-label="Main"
+        className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface/95 backdrop-blur-md lg:hidden"
+      >
+        {moreOpen ? (
+          <ul className="border-b border-border p-2">
+            {SECONDARY_NAV_ITEMS.map((item) => {
+              const active = isNavItemActive(pathname, item.href);
+              return (
+                <li key={item.href}>
+                  <Link
+                    href={item.href}
+                    aria-current={active ? "page" : undefined}
+                    className={cn(
+                      "flex items-center gap-2.5 rounded-md px-3 py-2.5 text-[13px] font-medium",
+                      active ? "bg-surface-3 text-foreground" : "text-muted-foreground",
+                    )}
+                  >
+                    <item.icon
+                      className={cn("size-4", active ? "text-brand" : "text-faint-foreground")}
+                    />
+                    {item.label}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+
+        <ul className="grid grid-cols-5 pb-[env(safe-area-inset-bottom)]">
+          {primary.map((item) => {
+            const active = isNavItemActive(pathname, item.href);
+            return (
+              <li key={item.href}>
+                <Link
+                  href={item.href}
+                  aria-current={active ? "page" : undefined}
+                  className={itemClass(active)}
+                  onClick={() => setMoreOpen(false)}
+                >
+                  <item.icon className="size-[18px]" />
+                  <span className="truncate">{item.shortLabel}</span>
+                </Link>
+              </li>
+            );
+          })}
+          <li>
+            <button
+              type="button"
+              onClick={() => setMoreOpen((open) => !open)}
+              aria-expanded={moreOpen}
+              aria-label="More sections"
+              className={itemClass(moreOpen || secondaryActive)}
+            >
+              <MoreHorizontal className="size-[18px]" />
+              <span className="truncate">More</span>
+            </button>
+          </li>
+        </ul>
+      </nav>
+    </>
   );
 }

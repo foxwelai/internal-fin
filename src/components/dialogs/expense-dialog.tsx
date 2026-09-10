@@ -20,6 +20,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Field, FormAlert, MoneyInput, SubmitButton } from "@/components/finance/form-kit";
 import { useActionDialog } from "@/components/finance/use-action-dialog";
+import { useFormDraft } from "@/components/finance/use-form-draft";
+import { DraftNotice } from "@/components/finance/draft-notice";
 import { EXPENSE_CATEGORY_LABELS } from "@/lib/finance/labels";
 import { EXPENSE_CATEGORIES, type ExpenseCategory } from "@/lib/finance/types";
 import { formatForCsv } from "@/lib/money";
@@ -45,7 +47,10 @@ export function ExpenseDialog({
   month: string;
   initial?: ExpenseInitial;
 }) {
-  const { state, formAction, pending, open, setOpen } = useActionDialog(saveExpense);
+  const { formRef, restored, clear, discard } = useFormDraft(`expense:${initial?.id ?? `new:${month}`}`);
+  const { state, formAction, pending, open, setOpen } = useActionDialog(saveExpense, {
+    onSuccess: clear,
+  });
   const [recurring, setRecurring] = React.useState(initial?.isRecurring ?? false);
 
   return (
@@ -60,11 +65,12 @@ export function ExpenseDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form action={formAction} className="contents">
+        <form action={formAction} ref={formRef} className="contents">
           {initial ? <input type="hidden" name="id" value={initial.id} /> : null}
           {recurring ? <input type="hidden" name="isRecurring" value="on" /> : null}
 
           <DialogBody className="space-y-4">
+            <DraftNotice restored={restored} onDiscard={discard} />
             <FormAlert state={state} />
 
             <Field name="name" label="Expense name" required errors={state.fieldErrors}>

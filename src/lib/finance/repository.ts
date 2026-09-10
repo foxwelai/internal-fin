@@ -6,8 +6,11 @@ import { todayInIST } from "@/lib/dates";
 import { indexDataset, type FinanceIndex } from "./engine";
 import type {
   EngineCashMovement,
+  EngineCommissionPayment,
   EngineExpense,
   EngineExpensePayment,
+  EngineLoan,
+  EngineLoanPayment,
   EngineProject,
   EngineReceipt,
   EngineSchedule,
@@ -35,6 +38,9 @@ export async function fetchFinanceDataset(): Promise<FinanceDataset> {
     allocations,
     expenses,
     expensePayments,
+    commissionPayments,
+    loans,
+    loanPayments,
     cashMovements,
     settings,
   ] = await Promise.all([
@@ -47,6 +53,9 @@ export async function fetchFinanceDataset(): Promise<FinanceDataset> {
     prisma.receiptAllocation.findMany(),
     prisma.monthlyExpense.findMany({ orderBy: [{ periodYear: "asc" }, { periodMonth: "asc" }] }),
     prisma.expensePayment.findMany({ orderBy: { paidOn: "asc" } }),
+    prisma.commissionPayment.findMany({ orderBy: { paidOn: "asc" } }),
+    prisma.loan.findMany({ orderBy: { receivedOn: "asc" } }),
+    prisma.loanPayment.findMany({ orderBy: { paidOn: "asc" } }),
     prisma.cashMovement.findMany({ orderBy: { occurredOn: "asc" } }),
     prisma.appSettings.findUnique({ where: { id: "singleton" } }),
   ]);
@@ -63,6 +72,13 @@ export async function fetchFinanceDataset(): Promise<FinanceDataset> {
         startDate: row.startDate,
         expectedCompletionDate: row.expectedCompletionDate,
         archivedAt: row.archivedAt,
+        billingType: row.billingType,
+        recurringInterval: row.recurringInterval,
+        recurringAmountPaise: row.recurringAmountPaise,
+        commissionBasis: row.commissionBasis,
+        commissionPayee: row.commissionPayee,
+        commissionRateBps: row.commissionRateBps,
+        commissionAmountPaise: row.commissionAmountPaise,
       }),
     ),
     schedules: schedules.map(
@@ -108,6 +124,33 @@ export async function fetchFinanceDataset(): Promise<FinanceDataset> {
       (row): EngineExpensePayment => ({
         id: row.id,
         expenseId: row.expenseId,
+        amountPaise: row.amountPaise,
+        paidOn: row.paidOn,
+      }),
+    ),
+    commissionPayments: commissionPayments.map(
+      (row): EngineCommissionPayment => ({
+        id: row.id,
+        projectId: row.projectId,
+        amountPaise: row.amountPaise,
+        paidOn: row.paidOn,
+      }),
+    ),
+    loans: loans.map(
+      (row): EngineLoan => ({
+        id: row.id,
+        lender: row.lender,
+        principalPaise: row.principalPaise,
+        interestRateBps: row.interestRateBps,
+        receivedOn: row.receivedOn,
+        dueDate: row.dueDate,
+        status: row.status,
+      }),
+    ),
+    loanPayments: loanPayments.map(
+      (row): EngineLoanPayment => ({
+        id: row.id,
+        loanId: row.loanId,
         amountPaise: row.amountPaise,
         paidOn: row.paidOn,
       }),
@@ -182,3 +225,11 @@ export const loadTeam = cache(async () => {
   const activeOwners = users.filter((user) => user.role === "OWNER" && user.isActive).length;
   return { users, activeOwners };
 });
+
+/** Loans and their repayments, for the Loans page. */
+export const loadLoans = cache(async () =>
+  prisma.loan.findMany({
+    orderBy: [{ status: "asc" }, { receivedOn: "desc" }],
+    include: { payments: { orderBy: { paidOn: "desc" } } },
+  }),
+);

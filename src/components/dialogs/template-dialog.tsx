@@ -20,6 +20,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Field, FormAlert, MoneyInput, SubmitButton } from "@/components/finance/form-kit";
 import { useActionDialog } from "@/components/finance/use-action-dialog";
+import { useFormDraft } from "@/components/finance/use-form-draft";
+import { DraftNotice } from "@/components/finance/draft-notice";
 import { EXPENSE_CATEGORY_LABELS } from "@/lib/finance/labels";
 import { EXPENSE_CATEGORIES, type ExpenseCategory } from "@/lib/finance/types";
 import { formatForCsv } from "@/lib/money";
@@ -41,7 +43,10 @@ export function TemplateDialog({
   children: React.ReactNode;
   initial?: TemplateInitial;
 }) {
-  const { state, formAction, pending, open, setOpen } = useActionDialog(saveTemplate);
+  const { formRef, restored, clear, discard } = useFormDraft(`template:${initial?.id ?? "new"}`);
+  const { state, formAction, pending, open, setOpen } = useActionDialog(saveTemplate, {
+    onSuccess: clear,
+  });
   const [active, setActive] = React.useState(initial?.isActive ?? true);
 
   return (
@@ -56,11 +61,12 @@ export function TemplateDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form action={formAction} className="contents">
+        <form action={formAction} ref={formRef} className="contents">
           {initial ? <input type="hidden" name="id" value={initial.id} /> : null}
           {active ? <input type="hidden" name="isActive" value="on" /> : null}
 
           <DialogBody className="space-y-4">
+            <DraftNotice restored={restored} onDiscard={discard} />
             <FormAlert state={state} />
 
             <Field name="name" label="Template name" required errors={state.fieldErrors}>

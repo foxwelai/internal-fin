@@ -31,6 +31,18 @@ export const PAYMENT_METHODS = [
 ] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
+export const BILLING_TYPES = ["ONE_TIME", "SUBSCRIPTION"] as const;
+export type BillingType = (typeof BILLING_TYPES)[number];
+
+export const RECURRING_INTERVALS = ["MONTHLY", "QUARTERLY", "YEARLY"] as const;
+export type RecurringInterval = (typeof RECURRING_INTERVALS)[number];
+
+export const COMMISSION_BASES = ["PERCENT_OF_RECEIVED", "FIXED"] as const;
+export type CommissionBasis = (typeof COMMISSION_BASES)[number];
+
+export const LOAN_STATUSES = ["ACTIVE", "CLOSED"] as const;
+export type LoanStatus = (typeof LOAN_STATUSES)[number];
+
 export const CASH_MOVEMENT_TYPES = [
   "FUNDING",
   "OWNER_CONTRIBUTION",
@@ -60,6 +72,40 @@ export type EngineProject = {
   startDate: Date | null;
   expectedCompletionDate: Date | null;
   archivedAt: Date | null;
+
+  billingType: BillingType;
+  recurringInterval: RecurringInterval | null;
+  recurringAmountPaise: Paise | null;
+
+  commissionBasis: CommissionBasis | null;
+  commissionPayee: string | null;
+  /** Basis points: 12.5% is 1250. */
+  commissionRateBps: number | null;
+  commissionAmountPaise: Paise | null;
+};
+
+export type EngineCommissionPayment = {
+  id: string;
+  projectId: string;
+  amountPaise: Paise;
+  paidOn: Date;
+};
+
+export type EngineLoan = {
+  id: string;
+  lender: string;
+  principalPaise: Paise;
+  interestRateBps: number | null;
+  receivedOn: Date;
+  dueDate: Date | null;
+  status: LoanStatus;
+};
+
+export type EngineLoanPayment = {
+  id: string;
+  loanId: string;
+  amountPaise: Paise;
+  paidOn: Date;
 };
 
 export type EngineSchedule = {
@@ -126,6 +172,9 @@ export type FinanceDataset = {
   allocations: readonly EngineAllocation[];
   expenses: readonly EngineExpense[];
   expensePayments: readonly EngineExpensePayment[];
+  commissionPayments: readonly EngineCommissionPayment[];
+  loans: readonly EngineLoan[];
+  loanPayments: readonly EngineLoanPayment[];
   cashMovements: readonly EngineCashMovement[];
   openingBalance: OpeningBalance | null;
   /** "Today" in Asia/Kolkata, as a UTC-midnight date. Injected, never read
@@ -172,6 +221,31 @@ export type ProjectRollup = {
   scheduleCount: number;
   receiptCount: number;
   isForecastable: boolean;
+
+  /** What the referrer has earned so far, and what is still owed to them. */
+  commissionDuePaise: Paise;
+  commissionPaidPaise: Paise;
+  commissionOutstandingPaise: Paise;
+
+  /** Recurring price annualised, for comparing subscriptions like for like. */
+  annualisedRecurringPaise: Paise;
+};
+
+export type LoanRollup = {
+  loan: EngineLoan;
+  repaidPaise: Paise;
+  outstandingPaise: Paise;
+  paymentCount: number;
+  /** Past its due date with money still owed. */
+  isOverdue: boolean;
+};
+
+export type LoanTotals = {
+  activeCount: number;
+  principalPaise: Paise;
+  repaidPaise: Paise;
+  outstandingPaise: Paise;
+  overduePaise: Paise;
 };
 
 export type ExpenseRollup = {
@@ -203,9 +277,18 @@ export type MonthSummary = {
   projectedCollectionsPaise: Paise;
 
   plannedExpensesPaise: Paise;
+  /** Expense budget lines settled in the month. */
+  expenseOutflowPaise: Paise;
+  /** Referral commissions settled in the month — a real cost, not budgeted. */
+  commissionOutflowPaise: Paise;
+  /** Everything operating that left the account: expenses + commissions. */
   actualCashOutflowPaise: Paise;
   outstandingExpensesPaise: Paise;
   projectedCashOutflowPaise: Paise;
+
+  /** Loan principal received and repayments made — financing, not trading. */
+  loanDrawnPaise: Paise;
+  loanRepaidPaise: Paise;
 
   actualSurplusPaise: Paise;
   projectedSurplusPaise: Paise;
@@ -243,6 +326,8 @@ export type CashPosition = {
   effectiveDate: Date;
   operatingInflowPaise: Paise;
   operatingOutflowPaise: Paise;
+  /** Loan principal in, less repayments out. */
+  financingNetPaise: Paise;
   nonOperatingNetPaise: Paise;
   closingBalancePaise: Paise;
   asOf: Date;

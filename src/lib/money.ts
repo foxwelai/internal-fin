@@ -213,3 +213,54 @@ export function formatPercent(value: number | null, options: { signed?: boolean 
   const sign = options.signed && rounded > 0 ? "+" : "";
   return `${sign}${rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(1)}%`;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Live input formatting                                                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Reformats what someone is typing into a money field, so "125000" reads back
+ * as "1,25,000" while they type.
+ *
+ * Deliberately permissive: it keeps a trailing "." and an empty fraction so the
+ * caret does not fight the person mid-number. The result always parses with
+ * `parseRupeesToPaise`, which strips the separators again on submit.
+ */
+export function formatMoneyInput(raw: string): string {
+  const negative = raw.trimStart().startsWith("-");
+  const cleaned = raw.replace(/[^\d.]/g, "");
+  if (cleaned === "") return negative ? "-" : "";
+
+  const [wholeRaw = "", ...rest] = cleaned.split(".");
+  const hasDot = cleaned.includes(".");
+  const fraction = rest.join("").slice(0, 2);
+
+  // Drop leading zeros, but keep a single one so "0.5" can be typed.
+  const whole = wholeRaw.replace(/^0+(?=\d)/, "");
+  const grouped = groupIndian(whole === "" ? "0" : whole);
+
+  const body = hasDot ? `${grouped}.${fraction}` : grouped;
+  return negative ? `-${body}` : body;
+}
+
+/** How many digits precede `caret` — the anchor for restoring caret position. */
+export function countDigitsBefore(text: string, caret: number): number {
+  let digits = 0;
+  for (let i = 0; i < caret && i < text.length; i += 1) {
+    if (text[i] >= "0" && text[i] <= "9") digits += 1;
+  }
+  return digits;
+}
+
+/** The offset just past the nth digit — the inverse of `countDigitsBefore`. */
+export function offsetAfterDigits(text: string, digits: number): number {
+  if (digits <= 0) return 0;
+  let seen = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] >= "0" && text[i] <= "9") {
+      seen += 1;
+      if (seen === digits) return i + 1;
+    }
+  }
+  return text.length;
+}

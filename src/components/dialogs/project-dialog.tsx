@@ -26,10 +26,27 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, FormAlert, MoneyInput, SubmitButton } from "@/components/finance/form-kit";
 import { useActionDialog } from "@/components/finance/use-action-dialog";
+import { useFormDraft } from "@/components/finance/use-form-draft";
+import { DraftNotice } from "@/components/finance/draft-notice";
 import type { ClientOption } from "@/components/finance/options";
-import { PROJECT_STATUS_LABELS } from "@/lib/finance/labels";
-import { PROJECT_STATUSES, type ProjectStatus } from "@/lib/finance/types";
+import {
+  BILLING_TYPE_LABELS,
+  COMMISSION_BASIS_LABELS,
+  PROJECT_STATUS_LABELS,
+  RECURRING_INTERVAL_LABELS,
+} from "@/lib/finance/labels";
+import {
+  BILLING_TYPES,
+  COMMISSION_BASES,
+  PROJECT_STATUSES,
+  RECURRING_INTERVALS,
+  type BillingType,
+  type CommissionBasis,
+  type ProjectStatus,
+  type RecurringInterval,
+} from "@/lib/finance/types";
 import { formatForCsv } from "@/lib/money";
+import { cn } from "@/lib/utils";
 
 export type ProjectInitial = {
   id: string;
@@ -40,7 +57,16 @@ export type ProjectInitial = {
   status: ProjectStatus;
   startDate: string | null;
   expectedCompletionDate: string | null;
+  projectUrl: string | null;
   notes: string | null;
+  billingType: BillingType;
+  recurringInterval: RecurringInterval | null;
+  recurringAmountPaise: number | null;
+  commissionBasis: CommissionBasis | null;
+  commissionPayee: string | null;
+  commissionRateBps: number | null;
+  commissionAmountPaise: number | null;
+  commissionNotes: string | null;
 };
 
 const STATUS_HINT: Record<ProjectStatus, string> = {
@@ -60,8 +86,17 @@ export function ProjectDialog({
   initial?: ProjectInitial;
   defaultClientId?: string;
 }) {
-  const { state, formAction, pending, open, setOpen } = useActionDialog(saveProject);
+  const { formRef, restored, clear, discard } = useFormDraft(`project:${initial?.id ?? "new"}`);
+  const { state, formAction, pending, open, setOpen } = useActionDialog(saveProject, {
+    onSuccess: clear,
+  });
   const [status, setStatus] = React.useState<ProjectStatus>(initial?.status ?? "PENDING");
+  const [billingType, setBillingType] = React.useState<BillingType>(
+    initial?.billingType ?? "ONE_TIME",
+  );
+  const [commissionBasis, setCommissionBasis] = React.useState<CommissionBasis | "">(
+    initial?.commissionBasis ?? "",
+  );
   const editing = Boolean(initial);
 
   const selectable = clients.filter((client) => !client.archived || client.id === initial?.clientId);
@@ -78,11 +113,14 @@ export function ProjectDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form action={formAction} className="contents">
+        <form action={formAction} ref={formRef} className="contents">
           {initial ? <input type="hidden" name="id" value={initial.id} /> : null}
           <input type="hidden" name="status" value={status} />
+          <input type="hidden" name="billingType" value={billingType} />
+          <input type="hidden" name="commissionBasis" value={commissionBasis} />
 
           <DialogBody className="space-y-4">
+            <DraftNotice restored={restored} onDiscard={discard} />
             <FormAlert state={state} />
 
             {selectable.length === 0 ? (
@@ -194,6 +232,196 @@ export function ProjectDialog({
                 )}
               </Field>
             </div>
+
+            <Field
+              name="projectUrl"
+              label="Project link"
+              errors={state.fieldErrors}
+              hint="Optional — a staging site, repo or brief."
+            >
+              {(props) => (
+                <Input
+                  {...props}
+                  inputMode="url"
+                  defaultValue={initial?.projectUrl ?? ""}
+                  placeholder="staging.northwind.example"
+                />
+              )}
+            </Field>
+
+            {/* ------------------------- Billing shape ------------------------ */}
+
+            <fieldset className="space-y-3 rounded-lg border border-border bg-surface-2/60 p-3">
+              <legend className="px-1 text-[12px] font-medium text-muted-foreground">
+                How it is billed
+              </legend>
+
+              <div className="inline-flex rounded-md border border-border bg-surface p-0.5">
+                {BILLING_TYPES.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => setBillingType(option)}
+                    aria-pressed={billingType === option}
+                    className={cn(
+                      "rounded px-2.5 py-1 text-[12px] font-medium transition-colors",
+                      billingType === option
+                        ? "bg-surface-3 text-foreground"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {BILLING_TYPE_LABELS[option]}
+                  </button>
+                ))}
+              </div>
+
+              {billingType === "SUBSCRIPTION" ? (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field
+                    name="recurringAmount"
+                    label="Recurring amount"
+                    required
+                    errors={state.fieldErrors}
+                  >
+                    {(props) => (
+                      <MoneyInput
+                        {...props}
+                        defaultValue={
+                          initial?.recurringAmountPaise
+                            ? formatForCsv(BigInt(initial.recurringAmountPaise))
+                            : ""
+                        }
+                        placeholder="25,000"
+                      />
+                    )}
+                  </Field>
+                  <div className="space-y-1.5">
+                    <span className="text-[13px] font-medium leading-none text-muted-foreground">
+                      Renews <span className="text-brand">*</span>
+                    </span>
+                    <select
+                      name="recurringInterval"
+                      defaultValue={initial?.recurringInterval ?? "MONTHLY"}
+                      className="flex h-9 w-full rounded-md border border-border bg-surface-2 px-3 text-sm text-foreground hover:border-border-strong focus-visible:border-brand-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+                    >
+                      {RECURRING_INTERVALS.map((interval) => (
+                        <option key={interval} value={interval}>
+                          {RECURRING_INTERVAL_LABELS[interval]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <p className="text-[12px] leading-relaxed text-faint-foreground sm:col-span-2">
+                    The budget above stays the total contract value. This is the price per period,
+                    used to compare retainers like for like.
+                  </p>
+                </div>
+              ) : (
+                <input type="hidden" name="recurringInterval" value="" />
+              )}
+            </fieldset>
+
+            {/* ------------------------- Commission --------------------------- */}
+
+            <fieldset className="space-y-3 rounded-lg border border-border bg-surface-2/60 p-3">
+              <legend className="px-1 text-[12px] font-medium text-muted-foreground">
+                Referral commission
+              </legend>
+
+              <div className="inline-flex flex-wrap gap-0.5 rounded-md border border-border bg-surface p-0.5">
+                {([["", "None"], ...COMMISSION_BASES.map((b) => [b, COMMISSION_BASIS_LABELS[b]] as const)] as const).map(
+                  ([option, label]) => (
+                    <button
+                      key={option || "none"}
+                      type="button"
+                      onClick={() => setCommissionBasis(option as CommissionBasis | "")}
+                      aria-pressed={commissionBasis === option}
+                      className={cn(
+                        "rounded px-2.5 py-1 text-[12px] font-medium transition-colors",
+                        commissionBasis === option
+                          ? "bg-surface-3 text-foreground"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ),
+                )}
+              </div>
+
+              {commissionBasis === "" ? (
+                <p className="text-[12px] leading-relaxed text-faint-foreground">
+                  Nobody is owed a cut of this project.
+                </p>
+              ) : (
+                <>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field name="commissionPayee" label="Paid to" errors={state.fieldErrors}>
+                      {(props) => (
+                        <Input
+                          {...props}
+                          defaultValue={initial?.commissionPayee ?? ""}
+                          placeholder="Who brought this in"
+                        />
+                      )}
+                    </Field>
+
+                    {commissionBasis === "PERCENT_OF_RECEIVED" ? (
+                      <Field
+                        name="commissionPercent"
+                        label="Rate"
+                        required
+                        errors={state.fieldErrors}
+                        hint="A share of money collected, so nothing is owed on an unpaid invoice."
+                      >
+                        {(props) => (
+                          <div className="relative">
+                            <Input
+                              {...props}
+                              inputMode="decimal"
+                              defaultValue={
+                                initial?.commissionRateBps ? String(initial.commissionRateBps / 100) : ""
+                              }
+                              placeholder="10"
+                              className="pr-7 font-mono tabular"
+                            />
+                            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 font-mono text-[13px] text-faint-foreground">
+                              %
+                            </span>
+                          </div>
+                        )}
+                      </Field>
+                    ) : (
+                      <Field
+                        name="commissionAmount"
+                        label="Amount"
+                        required
+                        errors={state.fieldErrors}
+                        hint="A flat fee, however much is collected."
+                      >
+                        {(props) => (
+                          <MoneyInput
+                            {...props}
+                            defaultValue={
+                              initial?.commissionAmountPaise
+                                ? formatForCsv(BigInt(initial.commissionAmountPaise))
+                                : ""
+                            }
+                            placeholder="15,000"
+                          />
+                        )}
+                      </Field>
+                    )}
+                  </div>
+
+                  <Field name="commissionNotes" label="Commission notes" errors={state.fieldErrors}>
+                    {(props) => (
+                      <Textarea {...props} defaultValue={initial?.commissionNotes ?? ""} rows={2} />
+                    )}
+                  </Field>
+                </>
+              )}
+            </fieldset>
 
             <Field name="notes" label="Notes" errors={state.fieldErrors}>
               {(props) => <Textarea {...props} defaultValue={initial?.notes ?? ""} rows={3} />}

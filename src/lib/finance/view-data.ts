@@ -16,7 +16,9 @@ export async function loadPickerOptions(): Promise<{
     loadFinanceIndex(),
     loadClients(),
     // Free-text fields the engine has no reason to carry, but the edit form needs.
-    prisma.project.findMany({ select: { id: true, description: true, notes: true } }),
+    prisma.project.findMany({
+      select: { id: true, description: true, notes: true, projectUrl: true, commissionNotes: true },
+    }),
   ]);
   const detailById = new Map(details.map((row) => [row.id, row]));
 
@@ -42,6 +44,27 @@ export async function loadPickerOptions(): Promise<{
       remainingPaise: toWire(rollup.remainingBalancePaise),
       scheduledOutstandingPaise: toWire(rollup.scheduledOutstandingPaise),
       unscheduledPaise: toWire(rollup.unscheduledPaise),
+      projectUrl: detailById.get(rollup.project.id)?.projectUrl ?? null,
+
+      billingType: rollup.project.billingType,
+      recurringInterval: rollup.project.recurringInterval,
+      recurringAmountPaise:
+        rollup.project.recurringAmountPaise === null
+          ? null
+          : toWire(rollup.project.recurringAmountPaise),
+      annualisedRecurringPaise: toWire(rollup.annualisedRecurringPaise),
+
+      commissionBasis: rollup.project.commissionBasis,
+      commissionPayee: rollup.project.commissionPayee,
+      commissionRateBps: rollup.project.commissionRateBps,
+      commissionAmountPaise:
+        rollup.project.commissionAmountPaise === null
+          ? null
+          : toWire(rollup.project.commissionAmountPaise),
+      commissionNotes: detailById.get(rollup.project.id)?.commissionNotes ?? null,
+      commissionDuePaise: toWire(rollup.commissionDuePaise),
+      commissionPaidPaise: toWire(rollup.commissionPaidPaise),
+      commissionOutstandingPaise: toWire(rollup.commissionOutstandingPaise),
       schedules: (index.schedulesByProjectId.get(rollup.project.id) ?? [])
         .map((schedule) => index.scheduleRollups.get(schedule.id))
         .filter((row) => row !== undefined)

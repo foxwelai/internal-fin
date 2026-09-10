@@ -68,6 +68,9 @@ export function CashBalanceCard({ position }: { position: CashPosition | null })
         <Row label="Expenses out">
           <Money value={-position.operatingOutflowPaise} tone="negative" className="text-[12px]" />
         </Row>
+        <Row label="Borrowing, net of repayments">
+          <Money value={position.financingNetPaise} tone="auto" signed className="text-[12px]" />
+        </Row>
         <Row label="Funding & owner movements">
           <Money value={position.nonOperatingNetPaise} tone="auto" signed className="text-[12px]" />
         </Row>

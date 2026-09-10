@@ -34,6 +34,8 @@ import {
   SubmitButton,
 } from "@/components/finance/form-kit";
 import { useActionDialog } from "@/components/finance/use-action-dialog";
+import { useFormDraft } from "@/components/finance/use-form-draft";
+import { DraftNotice } from "@/components/finance/draft-notice";
 import { Money } from "@/components/finance/money";
 import type { ProjectOption } from "@/components/finance/options";
 import { PAYMENT_METHOD_LABELS } from "@/lib/finance/labels";
@@ -67,7 +69,10 @@ export function ReceiptDialog({
   /** Today in IST, as "YYYY-MM-DD". */
   today: string;
 }) {
-  const { state, formAction, pending, open, setOpen } = useActionDialog(saveReceipt);
+  const { formRef, restored, clear, discard } = useFormDraft(`receipt:${initial?.id ?? "new"}`);
+  const { state, formAction, pending, open, setOpen } = useActionDialog(saveReceipt, {
+    onSuccess: clear,
+  });
 
   const [projectId, setProjectId] = React.useState(
     initial?.projectId ?? defaultProjectId ?? projects[0]?.id ?? "",
@@ -128,12 +133,13 @@ export function ReceiptDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form action={formAction} className="contents">
+        <form action={formAction} ref={formRef} className="contents">
           {initial ? <input type="hidden" name="id" value={initial.id} /> : null}
           <input type="hidden" name="projectId" value={projectId} />
           {mode === "auto" ? <input type="hidden" name="autoAllocate" value="on" /> : null}
 
           <DialogBody className="space-y-4">
+            <DraftNotice restored={restored} onDiscard={discard} />
             <FormAlert state={state} />
 
             <div className="space-y-1.5">

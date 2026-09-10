@@ -135,9 +135,11 @@ Two rules underpin everything:
 | Remaining contract balance | Project budget − all receipts for that project |
 | Amount scheduled / unscheduled | Unpaid schedule total, and the remainder of the balance with no date yet |
 | Overdue receivables | Unpaid scheduled amounts past their due date. Amounts from earlier months are reported separately and **never** added to a later month's forecast until explicitly rescheduled |
+| Referral commission | A share of money **actually collected** (never of the contract value, so nothing is owed on an unpaid invoice), or a flat fee. Rates are stored as basis points — 12.5% is 1250 — so the arithmetic stays in integers |
 | Planned monthly expenses | Expense budgets attributed to the month |
 | Actual cash outflow | Expense payments dated inside the month, whichever month the expense was budgeted to |
 | Projected cash outflow | Actual outflow + still-unpaid balance of the month's budget |
+| Actual cash outflow | Expense payments **plus** referral commissions paid, both dated by when the money left |
 | Actual cash surplus / deficit | Money received − actual cash outflow |
 | Projected cash surplus / deficit | Projected collections − projected cash outflow |
 | Cash surplus margin | Actual surplus ÷ actual collections. Rendered `—` when collections are zero |
@@ -146,9 +148,17 @@ Pending and on-hold projects sit in a separate **potential pipeline** and never
 enter a forecast. Receipts against them still count as collections, because the
 money genuinely arrived.
 
-Funding, owner contributions and withdrawals are recorded as **cash movements**.
-They move the cash balance and are deliberately excluded from collections,
-expenses and the operating surplus.
+Funding, owner contributions and withdrawals are recorded as **cash movements**,
+and borrowing is recorded as **loans**. Both move the cash balance and are
+deliberately excluded from collections, expenses and the operating surplus: a
+loan arriving is not income, and repaying it is not a cost. They appear on
+Overview under "What the business owes" so a healthy surplus is never mistaken
+for money you get to keep.
+
+Projects can be **one-off** or a **subscription** with a price per month,
+quarter or year. The budget stays the total contract value; the recurring price
+is shown alongside it and annualised, so retainers can be compared like for
+like.
 
 ### Money and dates
 
@@ -280,6 +290,9 @@ called for in the brief:
 | Receipts survive a project status change | *case 10* |
 | Every role gets exactly the permissions it should, and no lower role exceeds a higher one | *permissions* |
 | Every server action authorises before doing anything | *action guards* |
+| Commission is charged on collections, not contract value, and a fractional rate stays exact | *referral commission* |
+| Borrowing never touches the operating result, only the cash balance | *loans* |
+| Money typed into a field regroups Indian-style and still parses | *live money input* |
 
 `npm run verify:data` runs the engine against the live database and asserts that
 `received + scheduled + unscheduled === budget` for every project.
@@ -380,3 +393,11 @@ A count of `0` there means the application is not in that commit.
   `repository.ts` is the seam to add if the book grows past a few thousand rows.
 - Analytics charts link through to the underlying records at the metric and
   category level; individual bars are not yet click-through.
+- A subscription's recurring price is descriptive: it is shown and annualised,
+  but does not yet generate the payment schedule automatically.
+- Loan interest is recorded for reference only. Repayments are entered as they
+  happen rather than amortised into principal and interest.
+- Commission payable is a standing liability rather than part of a month's
+  forecast, because a commission has no due date of its own.
+- Unsaved form input is kept in the browser's own storage, so it is per-device
+  and per-browser, and passwords are deliberately never kept.

@@ -1,6 +1,7 @@
 import {
   BarChart3,
   LayoutDashboard,
+  Landmark,
   Receipt,
   Settings,
   Users,
@@ -21,9 +22,13 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/clients", label: "Clients & Projects", shortLabel: "Clients", icon: Users, primary: true },
   { href: "/payments", label: "Payments", shortLabel: "Payments", icon: Wallet, primary: true },
   { href: "/expenses", label: "Monthly Expenses", shortLabel: "Expenses", icon: Receipt, primary: true },
-  { href: "/analytics", label: "Analytics", shortLabel: "Analytics", icon: BarChart3, primary: true },
+  { href: "/loans", label: "Loans", shortLabel: "Loans", icon: Landmark, primary: false },
+  { href: "/analytics", label: "Analytics", shortLabel: "Analytics", icon: BarChart3, primary: false },
   { href: "/settings", label: "Settings", shortLabel: "Settings", icon: Settings, primary: false },
 ];
+
+/** Everything the phone's bottom bar cannot fit, shown behind "More". */
+export const SECONDARY_NAV_ITEMS = NAV_ITEMS.filter((item) => !item.primary);
 
 /** `/clients/abc` should still light up the Clients entry. */
 export function isNavItemActive(pathname: string, href: string): boolean {

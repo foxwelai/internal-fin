@@ -29,9 +29,11 @@ import { toWire } from "@/lib/money";
 import { loadFinanceIndex } from "@/lib/finance/repository";
 import {
   cashPositionAsOf,
+  commissionsPayablePaise,
   compareToPreviousMonth,
   expenseCategoryBreakdown,
   forecastableScheduleRollups,
+  loanTotals,
   pipelineTotals,
   summariseMonth,
 } from "@/lib/finance/engine";
@@ -110,6 +112,8 @@ export default async function OverviewPage({
   );
 
   const cash = cashPositionAsOf(index, monthEndInclusive(month));
+  const loans = loanTotals(index);
+  const commissionsPayable = commissionsPayablePaise(index);
   const insights = buildInsights(index, month, summary);
   const pipeline = pipelineTotals(index);
 
@@ -169,9 +173,19 @@ export default async function OverviewPage({
               value: <Money value={summary.actualCollectionsPaise} className="text-[13px]" />,
             },
             {
-              label: "Paid out",
-              value: <Money value={summary.actualCashOutflowPaise} className="text-[13px]" />,
+              label: "Expenses paid",
+              value: <Money value={summary.expenseOutflowPaise} className="text-[13px]" />,
             },
+            ...(summary.commissionOutflowPaise > 0n
+              ? [
+                  {
+                    label: "Commissions paid",
+                    value: (
+                      <Money value={summary.commissionOutflowPaise} className="text-[13px]" />
+                    ),
+                  },
+                ]
+              : []),
           ]}
         />
 
@@ -279,6 +293,59 @@ export default async function OverviewPage({
           footnote="Paid + still to pay"
         />
       </section>
+
+      {/* --------------------------- What we owe --------------------------- */}
+
+      {loans.outstandingPaise > 0n || commissionsPayable > 0n || summary.loanDrawnPaise > 0n ? (
+        <section aria-label="Obligations" className="space-y-2.5">
+          <SectionHeading
+            title="What the business owes"
+            description="Borrowing and referral commissions. Neither is an operating expense, so neither moves the surplus above — they are shown here so the surplus is never mistaken for money you get to keep."
+          />
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Loans outstanding"
+              value={loans.outstandingPaise}
+              kind="actual"
+              tone={loans.outstandingPaise > 0n ? "warning" : "default"}
+              href="/loans"
+              footnote={`${loans.activeCount} active loan${loans.activeCount === 1 ? "" : "s"}${
+                loans.overduePaise > 0n ? " · some past their repay-by date" : ""
+              }`}
+            />
+            <MetricCard
+              label="Repaid to date"
+              value={loans.repaidPaise}
+              kind="actual"
+              href="/loans"
+              footnote="Across every loan"
+            />
+            <MetricCard
+              label="Commissions payable"
+              value={commissionsPayable}
+              kind="actual"
+              tone={commissionsPayable > 0n ? "warning" : "default"}
+              href="/clients?tab=projects"
+              footnote="Earned by referrers, not yet paid"
+            />
+            <MetricCard
+              label={`Borrowed in ${formatMonthLabel(month, "compact")}`}
+              value={summary.loanDrawnPaise}
+              kind="actual"
+              href="/loans"
+              footnote={
+                summary.loanRepaidPaise > 0n ? (
+                  <>
+                    <Money value={summary.loanRepaidPaise} className="text-[12px]" /> repaid this month
+                  </>
+                ) : (
+                  "Cash in, but not income"
+                )
+              }
+            />
+          </div>
+        </section>
+      ) : null}
 
       {/* ---------------------------- Insights ---------------------------- */}
 

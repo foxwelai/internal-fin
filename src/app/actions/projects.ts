@@ -31,11 +31,45 @@ export async function saveProject(_prev: ActionState, formData: FormData): Promi
       status: formValue(formData, "status"),
       startDate: formValue(formData, "startDate"),
       expectedCompletionDate: formValue(formData, "expectedCompletionDate"),
+      projectUrl: formValue(formData, "projectUrl"),
       notes: formValue(formData, "notes"),
+      billingType: formValue(formData, "billingType") || "ONE_TIME",
+      recurringInterval: formValue(formData, "recurringInterval"),
+      recurringAmount: formValue(formData, "recurringAmount"),
+      commissionBasis: formValue(formData, "commissionBasis"),
+      commissionPayee: formValue(formData, "commissionPayee"),
+      commissionPercent: formValue(formData, "commissionPercent"),
+      commissionAmount: formValue(formData, "commissionAmount"),
+      commissionNotes: formValue(formData, "commissionNotes"),
     });
     if (!parsed.success) return fromZodError(parsed.error);
 
-    const { id, budget, ...rest } = parsed.data;
+    const {
+      id,
+      budget,
+      recurringAmount,
+      recurringInterval,
+      commissionBasis,
+      commissionPercent,
+      commissionAmount,
+      ...rest
+    } = parsed.data;
+
+    // Only keep the fields that belong to the chosen shape, so switching a
+    // project back to one-off or clearing a commission does not leave a stale
+    // amount behind that later reads as if it were still agreed.
+    const isSubscription = rest.billingType === "SUBSCRIPTION";
+    const billing = {
+      recurringInterval: isSubscription ? recurringInterval : null,
+      recurringAmountPaise: isSubscription ? recurringAmount : null,
+    };
+    const commission = {
+      commissionBasis,
+      commissionRateBps: commissionBasis === "PERCENT_OF_RECEIVED" ? commissionPercent : null,
+      commissionAmountPaise: commissionBasis === "FIXED" ? commissionAmount : null,
+      commissionPayee: commissionBasis ? rest.commissionPayee : null,
+      commissionNotes: commissionBasis ? rest.commissionNotes : null,
+    };
 
     const client = await prisma.client.findUnique({ where: { id: rest.clientId } });
     if (!client) return failure("Choose a client for this project.", { clientId: ["Client not found"] });
@@ -55,12 +89,17 @@ export async function saveProject(_prev: ActionState, formData: FormData): Promi
         );
       }
 
-      await prisma.project.update({ where: { id }, data: { ...rest, budgetPaise: budget } });
+      await prisma.project.update({
+        where: { id },
+        data: { ...rest, budgetPaise: budget, ...billing, ...commission },
+      });
       revalidateFinance();
       return success(`${rest.name} updated.`);
     }
 
-    const created = await prisma.project.create({ data: { ...rest, budgetPaise: budget } });
+    const created = await prisma.project.create({
+      data: { ...rest, budgetPaise: budget, ...billing, ...commission },
+    });
     revalidateFinance();
     return success(`${rest.name} created.`, created.id);
   });

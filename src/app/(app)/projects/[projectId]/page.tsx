@@ -1,7 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { ArrowLeft, CalendarPlus, Pencil, Wallet } from "lucide-react";
+import {
+  ArrowLeft,
+  CalendarPlus,
+  HandCoins,
+  Link as LinkIcon,
+  Pencil,
+  Wallet,
+} from "lucide-react";
 
 import { PageHeader, SectionHeading } from "@/components/finance/page-header";
 import { MetricCard } from "@/components/finance/metric-card";
@@ -14,7 +21,7 @@ import { ReceiptDialog } from "@/components/dialogs/receipt-dialog";
 import { ScheduleRowActions } from "@/components/finance/schedule-row-actions";
 import { ReceiptRowActions } from "@/components/finance/receipt-row-actions";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Meter } from "@/components/ui/progress";
 import {
@@ -33,7 +40,9 @@ import { formatDay, formatRelativeDay, toDateInputValue, todayInIST } from "@/li
 import { percentOf, toWire } from "@/lib/money";
 import { loadFinanceIndex } from "@/lib/finance/repository";
 import { loadPickerOptions } from "@/lib/finance/view-data";
-import { PAYMENT_METHOD_LABELS } from "@/lib/finance/labels";
+import { toProjectInitial } from "@/components/finance/options";
+import { PAYMENT_METHOD_LABELS, RECURRING_INTERVAL_SHORT } from "@/lib/finance/labels";
+import { CommissionPaymentDialog } from "@/components/dialogs/commission-payment-dialog";
 import { requireUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 
@@ -60,7 +69,10 @@ export default async function ProjectDetailPage({
     loadPickerOptions(),
     prisma.project.findUnique({
       where: { id: projectId },
-      include: { receipts: { include: { allocations: true } } },
+      include: {
+        receipts: { include: { allocations: true } },
+        commissionPayments: { orderBy: { paidOn: "desc" } },
+      },
     }),
   ]);
 
@@ -77,6 +89,7 @@ export default async function ProjectDetailPage({
     .filter((row) => row !== undefined)
     .sort((a, b) => a.schedule.dueDate.getTime() - b.schedule.dueDate.getTime());
 
+  const commissionPayments = record.commissionPayments;
   const receipts = [...record.receipts].sort(
     (a, b) => b.receivedOn.getTime() - a.receivedOn.getTime(),
   );
@@ -105,6 +118,25 @@ export default async function ProjectDetailPage({
                 Not counted in monthly forecasts — money already received still is.
               </span>
             ) : null}
+            {option.billingType === "SUBSCRIPTION" &&
+            option.recurringAmountPaise !== null &&
+            option.recurringInterval !== null ? (
+              <Badge variant="info">
+                <Money value={BigInt(option.recurringAmountPaise)} className="text-[11px]" />
+                {RECURRING_INTERVAL_SHORT[option.recurringInterval]}
+              </Badge>
+            ) : null}
+            {record.projectUrl ? (
+              <a
+                href={record.projectUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="inline-flex items-center gap-1 text-brand hover:underline"
+              >
+                <LinkIcon className="size-3.5" />
+                {record.projectUrl.replace(/^https?:\/\//, "")}
+              </a>
+            ) : null}
             {record.description ? <span>{record.description}</span> : null}
           </span>
         }
@@ -113,17 +145,7 @@ export default async function ProjectDetailPage({
           <>
             <ProjectDialog
               clients={clientOptions}
-              initial={{
-                id: option.id,
-                clientId: option.clientId,
-                name: option.name,
-                description: option.description,
-                budgetPaise: option.budgetPaise,
-                status: option.status,
-                startDate: option.startDate,
-                expectedCompletionDate: option.expectedCompletionDate,
-                notes: option.notes,
-              }}
+              initial={toProjectInitial(option)}
             >
               <Button variant="outline" size="sm">
                 <Pencil />
@@ -231,6 +253,99 @@ export default async function ProjectDetailPage({
         <p className="rounded-lg border border-border bg-surface-2 px-3.5 py-2.5 text-[13px] leading-relaxed text-muted-foreground">
           {record.notes}
         </p>
+      ) : null}
+
+      {/* ---------------------------- Commission --------------------------- */}
+
+      {option.commissionBasis ? (
+        <section className="space-y-2.5">
+          <SectionHeading
+            title="Referral commission"
+            description={
+              option.commissionBasis === "PERCENT_OF_RECEIVED"
+                ? "Accrues as the client pays, so nothing is owed on an unpaid invoice."
+                : "A flat fee agreed up front, however much is collected."
+            }
+          />
+          <Card>
+            <CardContent className="pt-4 sm:pt-5">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-[13px] text-muted-foreground">
+                    Payable to{" "}
+                    <span className="text-foreground">{option.commissionPayee ?? "the referrer"}</span>
+                    {option.commissionBasis === "PERCENT_OF_RECEIVED" ? (
+                      <>
+                        {" "}
+                        at{" "}
+                        <span className="font-mono tabular text-foreground">
+                          {(option.commissionRateBps ?? 0) / 100}%
+                        </span>{" "}
+                        of money collected
+                      </>
+                    ) : null}
+                  </p>
+                  {option.commissionNotes ? (
+                    <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+                      {option.commissionNotes}
+                    </p>
+                  ) : null}
+                </div>
+                {canWrite && option.commissionOutstandingPaise > 0 ? (
+                  <CommissionPaymentDialog
+                    projectId={projectId}
+                    payee={option.commissionPayee}
+                    duePaise={option.commissionDuePaise}
+                    paidPaise={option.commissionPaidPaise}
+                    today={today}
+                  >
+                    <Button size="sm" variant="secondary">
+                      <HandCoins />
+                      Pay commission
+                    </Button>
+                  </CommissionPaymentDialog>
+                ) : null}
+              </div>
+
+              <dl className="mt-4 grid gap-3 border-t border-border pt-3 sm:grid-cols-3">
+                <CommissionFigure label="Earned so far" value={BigInt(option.commissionDuePaise)} />
+                <CommissionFigure
+                  label="Paid"
+                  value={BigInt(option.commissionPaidPaise)}
+                  tone="positive"
+                />
+                <CommissionFigure
+                  label="Owed"
+                  value={BigInt(option.commissionOutstandingPaise)}
+                  tone={option.commissionOutstandingPaise > 0 ? "warning" : "muted"}
+                />
+              </dl>
+
+              {commissionPayments.length > 0 ? (
+                <ul className="mt-3 space-y-1 border-t border-border pt-3">
+                  {commissionPayments.map((payment) => (
+                    <li
+                      key={payment.id}
+                      className="flex items-baseline justify-between gap-3 text-[12px]"
+                    >
+                      <span className="text-muted-foreground">
+                        <span className="font-mono tabular">{formatDay(payment.paidOn)}</span>
+                        <span className="mx-1.5 text-faint-foreground">·</span>
+                        {PAYMENT_METHOD_LABELS[payment.method]}
+                        {payment.reference ? (
+                          <span className="ml-1.5 font-mono tabular text-faint-foreground">
+                            {payment.reference}
+                          </span>
+                        ) : null}
+                      </span>
+                      <Money value={payment.amountPaise} className="text-[12px]" />
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </CardContent>
+          </Card>
+        </section>
       ) : null}
 
       {/* ----------------------------- Schedule ---------------------------- */}
@@ -491,6 +606,27 @@ export default async function ProjectDetailPage({
           )}
         </Card>
       </section>
+    </div>
+  );
+}
+
+function CommissionFigure({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: bigint;
+  tone?: "default" | "positive" | "warning" | "muted";
+}) {
+  return (
+    <div>
+      <dt className="text-[11px] font-semibold uppercase tracking-wider text-faint-foreground">
+        {label}
+      </dt>
+      <dd>
+        <Money value={value} tone={tone} className="mt-0.5 block text-[17px] font-semibold" />
+      </dd>
     </div>
   );
 }

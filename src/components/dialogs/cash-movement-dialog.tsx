@@ -19,6 +19,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, FormAlert, MoneyInput, SubmitButton } from "@/components/finance/form-kit";
 import { useActionDialog } from "@/components/finance/use-action-dialog";
+import { useFormDraft } from "@/components/finance/use-form-draft";
+import { DraftNotice } from "@/components/finance/draft-notice";
 import { CASH_MOVEMENT_LABELS } from "@/lib/finance/labels";
 import { CASH_MOVEMENT_TYPES, type CashMovementType } from "@/lib/finance/types";
 import { formatForCsv } from "@/lib/money";
@@ -41,7 +43,10 @@ export function CashMovementDialog({
   initial?: CashMovementInitial;
   today: string;
 }) {
-  const { state, formAction, pending, open, setOpen } = useActionDialog(saveCashMovement);
+  const { formRef, restored, clear, discard } = useFormDraft(`cash-movement:${initial?.id ?? "new"}`);
+  const { state, formAction, pending, open, setOpen } = useActionDialog(saveCashMovement, {
+    onSuccess: clear,
+  });
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -55,10 +60,11 @@ export function CashMovementDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form action={formAction} className="contents">
+        <form action={formAction} ref={formRef} className="contents">
           {initial ? <input type="hidden" name="id" value={initial.id} /> : null}
 
           <DialogBody className="space-y-4">
+            <DraftNotice restored={restored} onDiscard={discard} />
             <FormAlert state={state} />
 
             <div className="space-y-1.5">
