@@ -18,19 +18,28 @@ async function main() {
   const secret = process.env.AUTH_SECRET;
   if (!secret) throw new Error("AUTH_SECRET is not set");
 
-  const email = (process.argv[2] ?? process.env.OWNER_EMAIL ?? "").toLowerCase();
+  const [emailArg] = process.argv.slice(2).filter((arg) => !arg.startsWith("--"));
+  const email = (emailArg ?? process.env.OWNER_EMAIL ?? "").toLowerCase();
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user) throw new Error(`No account for ${email}`);
   if (!user.isActive) throw new Error(`${email} is deactivated`);
 
+  // Auth.js derives the cookie name from the site URL's protocol, and uses that
+  // same name as the JWT salt. Mirror the rule so a minted token matches
+  // whatever the running app expects.
+  const siteUrl = process.env.AUTH_URL ?? process.env.NEXTAUTH_URL;
+  const secureCookies = siteUrl ? siteUrl.startsWith("https://") : false;
+  const cookieName = `${secureCookies ? "__Secure-" : ""}authjs.session-token`;
+
   const token = await encode({
     token: { id: user.id, sub: user.id, name: user.name, email: user.email },
     secret,
-    salt: "authjs.session-token",
+    salt: cookieName,
     maxAge: 60 * 60 * 6,
   });
 
-  console.log(token);
+  if (process.argv.includes("--with-name")) console.log(`${cookieName}=${token}`);
+  else console.log(token);
 }
 
 main()

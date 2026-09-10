@@ -324,7 +324,7 @@ Preview and Development:
 | `DATABASE_URL` | yes | Your **pooled** connection string. On Neon that is the host containing `-pooler`. Serverless functions open a pool each, so the pooler is what keeps you inside the connection limit. |
 | `AUTH_SECRET` | yes | `openssl rand -base64 32`. Use a different value from your local one. |
 | `DIRECT_URL` | no | Only if you run `prisma migrate deploy` from CI. Not used at runtime. |
-| `AUTH_URL` | no | Leave unset. The app sets `trustHost`, so it infers the URL from the request — which is what makes preview deployments work. |
+| `AUTH_URL` | no | Leave unset, and the app infers the URL from the request — which is what makes preview deployments work too. If you do set it, use the site's own **https** URL; Auth.js then names the session cookie `__Secure-authjs.session-token` and marks it Secure, which is correct on HTTPS. |
 | `OWNER_EMAIL` / `OWNER_PASSWORD` | no | Only read by the seed, which you run locally. Keeping them off the host keeps that password out of your deployment settings. |
 
 Migrations are **not** run during the build, deliberately: a preview deployment
@@ -354,8 +354,14 @@ URL's protocol, so an `http://localhost` value strips the **Secure** flag off
 the session cookie on your HTTPS site.
 
 **Remove `AUTH_URL` and `NEXTAUTH_URL` from Project Settings → Environment
-Variables, then redeploy.** The app infers its URL from the request, which is
+Variables, then redeploy** — or set `AUTH_URL` to the site's own https URL.
+Leaving it unset is simpler: the app infers its URL from the request, which is
 what makes the production domain and every preview deployment work.
+
+Whatever you do, never put an https `AUTH_URL` in a **local** `.env`. Auth.js
+would then name the session cookie `__Secure-authjs.session-token`, and no
+browser will store or send a `__Secure-` cookie over `http://localhost` — local
+sign-in would look like it worked and then silently leave you signed out.
 
 The app defends itself on both counts: sign-in and sign-out navigate with Next's
 own `redirect()` on a relative path, so they cannot be aimed at another origin;
