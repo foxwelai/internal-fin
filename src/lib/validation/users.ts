@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { ROLE_ORDER } from "@/lib/permissions";
 
-import { idField, requiredText } from "./common";
+import { requiredText } from "./common";
 
 const roleField = z.enum(ROLE_ORDER as [string, ...string[]]);
 
@@ -19,20 +19,4 @@ export const addUserSchema = z.object({
   name: requiredText("Name", 120),
   email: emailField,
   role: roleField,
-});
-
-export const approveUserSchema = z.object({
-  id: idField,
-  role: roleField,
-});
-
-export const updateUserSchema = z.object({
-  id: idField,
-  name: requiredText("Name", 120),
-  role: roleField,
-});
-
-export const setUserActiveSchema = z.object({
-  id: idField,
-  active: z.enum(["true", "false"]),
 });

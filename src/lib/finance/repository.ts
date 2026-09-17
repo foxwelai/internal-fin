@@ -1,7 +1,7 @@
 import { cache } from "react";
 
 import { prisma } from "@/lib/db";
-import { requirePageUser, requirePermission } from "@/lib/auth";
+import { requirePageUser } from "@/lib/auth";
 import { todayInIST } from "@/lib/dates";
 
 import { indexDataset, type FinanceIndex } from "./engine";
@@ -212,38 +212,6 @@ export const hasDemoData = cache(async () => {
   await requirePageUser();
   const count = await prisma.client.count({ where: { isDemo: true } });
   return count > 0;
-});
-
-/** The team, for the Settings page: requests awaiting a decision, then members. */
-export const loadTeam = cache(async () => {
-  await requirePermission("users:manage");
-  const users = await prisma.user.findMany({
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      role: true,
-      isActive: true,
-      approvedAt: true,
-      clerkUserId: true,
-      lastLoginAt: true,
-      createdAt: true,
-      approvedBy: { select: { name: true } },
-    },
-    orderBy: [{ createdAt: "asc" }],
-  });
-
-  const pending = users.filter((user) => user.approvedAt === null && user.isActive);
-  const declined = users.filter((user) => user.approvedAt === null && !user.isActive);
-  const members = users
-    .filter((user) => user.approvedAt !== null)
-    .sort((a, b) => Number(b.isActive) - Number(a.isActive) || a.name.localeCompare(b.name));
-
-  const activeSuperAdmins = members.filter(
-    (user) => user.role === "SUPER_ADMIN" && user.isActive,
-  ).length;
-
-  return { pending, declined, members, activeSuperAdmins };
 });
 
 /** Loans and their repayments, for the Loans page. */

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { Clock, Download, Plus, Users } from "lucide-react";
+import { Download, Plus, Users } from "lucide-react";
 
 import { PageHeader } from "@/components/finance/page-header";
 import { Money } from "@/components/finance/money";
@@ -33,14 +33,10 @@ import {
   todayInIST,
 } from "@/lib/dates";
 import { formatForCsv, toWire } from "@/lib/money";
-import { hasDemoData, loadSettings, loadTeam } from "@/lib/finance/repository";
+import { hasDemoData, loadSettings } from "@/lib/finance/repository";
+import { loadTeamView } from "@/lib/team";
+import { PeopleList } from "@/components/finance/people-list";
 import { UserDialog } from "@/components/dialogs/user-dialog";
-import { UserRowActions } from "@/components/finance/user-row-actions";
-import {
-  DeclinedRequestActions,
-  PendingRequestActions,
-} from "@/components/finance/pending-request-actions";
-import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/finance/empty-state";
 import { CASH_MOVEMENT_LABELS } from "@/lib/finance/labels";
 import { signedCashMovement } from "@/lib/finance/engine";
@@ -57,9 +53,10 @@ export default async function SettingsPage() {
     loadSettings(),
     prisma.cashMovement.findMany({ orderBy: { occurredOn: "desc" } }),
     hasDemoData(),
-    canManageUsers ? loadTeam() : Promise.resolve(null),
+    canManageUsers ? loadTeamView() : Promise.resolve(null),
   ]);
 
+  const waiting = team?.people.filter((person) => person.state === "needs-access").length ?? 0;
   const today = toDateInputValue(todayInIST());
   const monthParam = formatMonthKey(currentMonthKey());
 
@@ -234,166 +231,52 @@ export default async function SettingsPage() {
       {/* -------------------------------- Team ----------------------------- */}
 
       {canManageUsers && team ? (
-        <>
-          {team.pending.length > 0 ? (
-            <Card id="requests" className="overflow-hidden border-warning/30">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Clock className="size-4 text-warning" />
-                  Pending requests
-                  <span className="rounded-full border border-warning/35 bg-warning-soft px-1.5 py-px font-mono text-[11px] text-warning">
-                    {team.pending.length}
+        <Card id="team" className="overflow-hidden">
+          <CardHeader className="flex-row items-start justify-between gap-3">
+            <div className="min-w-0">
+              <CardTitle className="flex flex-wrap items-center gap-2">
+                <Users className="size-4 text-faint-foreground" />
+                Team access
+                {waiting > 0 ? (
+                  <span className="rounded-full border border-warning/35 bg-warning-soft px-1.5 py-px text-[11px] font-medium text-warning">
+                    {waiting} waiting
                   </span>
-                </CardTitle>
-                <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
-                  These people signed in with Clerk and are looking at a &ldquo;waiting for
-                  approval&rdquo; screen. They see no data until you approve them with a role.
-                </p>
-              </CardHeader>
-              <ul className="divide-y divide-border border-t border-border">
-                {team.pending.map((request) => (
-                  <li
-                    key={request.id}
-                    className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-[13px] font-medium">{request.name}</p>
-                      <p className="font-mono tabular text-[12px] text-muted-foreground">
-                        {request.email}
-                      </p>
-                      <p className="mt-0.5 text-[11px] text-faint-foreground">
-                        Asked {formatDay(request.createdAt)}
-                      </p>
-                    </div>
-                    <PendingRequestActions
-                      userId={request.id}
-                      name={request.name}
-                      email={request.email}
-                    />
-                  </li>
-                ))}
-              </ul>
-            </Card>
+                ) : null}
+              </CardTitle>
+              <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+                Everyone who has signed up appears here — including people who never got past
+                sign-up. Change the dropdown to give or remove access; it saves straight away and
+                applies on their next click.
+              </p>
+            </div>
+            <UserDialog>
+              <Button size="sm" variant="outline" className="shrink-0">
+                <Plus />
+                <span className="hidden sm:inline">Invite by email</span>
+                <span className="sm:hidden">Invite</span>
+              </Button>
+            </UserDialog>
+          </CardHeader>
+
+          {team.clerkError ? (
+            <p className="mx-4 mb-3 rounded-md border border-warning/30 bg-warning-soft px-3 py-2 text-[12px] leading-relaxed text-warning sm:mx-5">
+              {team.clerkError}
+            </p>
           ) : null}
 
-          <Card id="team" className="overflow-hidden">
-            <CardHeader className="flex-row items-start justify-between gap-3">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <Users className="size-4 text-faint-foreground" />
-                  Team
-                </CardTitle>
-                <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
-                  Sign-in is handled by Clerk; access is decided here, in the database. A role
-                  change takes effect on that person&rsquo;s very next request.
-                </p>
-              </div>
-              <UserDialog>
-                <Button size="sm">
-                  <Plus />
-                  Give access
-                </Button>
-              </UserDialog>
-            </CardHeader>
-
-            <TableWrap>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="hidden md:table-cell">Last signed in</TableHead>
-                    <TableHead className="hidden lg:table-cell">Approved by</TableHead>
-                    <TableHead className="w-10" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {team.members.map((member) => {
-                    const isSelf = member.id === viewer.id;
-                    const isLastSuperAdmin =
-                      member.role === "SUPER_ADMIN" && member.isActive && team.activeSuperAdmins <= 1;
-                    return (
-                      <TableRow key={member.id}>
-                        <TableCell>
-                          <span className="text-[13px] font-medium">
-                            {member.name}
-                            {isSelf ? (
-                              <span className="ml-1.5 text-[11px] text-faint-foreground">you</span>
-                            ) : null}
-                          </span>
-                          <span className="block font-mono tabular text-[12px] text-muted-foreground">
-                            {member.email}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={member.role === "SUPER_ADMIN" ? "brand" : "default"}>
-                            {ROLE_LABELS[member.role]}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {!member.isActive ? (
-                            <Badge variant="negative">Deactivated</Badge>
-                          ) : member.clerkUserId ? (
-                            <Badge variant="positive">Active</Badge>
-                          ) : (
-                            <Badge variant="outline">Not signed in yet</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="hidden whitespace-nowrap font-mono tabular text-[13px] text-muted-foreground md:table-cell">
-                          {member.lastLoginAt ? formatDay(member.lastLoginAt) : "—"}
-                        </TableCell>
-                        <TableCell className="hidden text-[13px] text-muted-foreground lg:table-cell">
-                          {member.approvedBy?.name ?? "initial setup"}
-                        </TableCell>
-                        <TableCell>
-                          <UserRowActions
-                            isActive={member.isActive}
-                            isSelf={isSelf}
-                            isLastSuperAdmin={isLastSuperAdmin}
-                            user={{
-                              id: member.id,
-                              name: member.name,
-                              email: member.email,
-                              role: member.role,
-                            }}
-                          />
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </TableWrap>
-          </Card>
-
-          {team.declined.length > 0 ? (
-            <Card className="overflow-hidden">
-              <CardHeader>
-                <CardTitle>Declined requests</CardTitle>
-                <p className="mt-1 text-[13px] text-muted-foreground">
-                  Kept so they don&rsquo;t reappear every time that person signs in.
-                </p>
-              </CardHeader>
-              <ul className="divide-y divide-border border-t border-border">
-                {team.declined.map((request) => (
-                  <li
-                    key={request.id}
-                    className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-[13px] font-medium">{request.name}</p>
-                      <p className="font-mono tabular text-[12px] text-muted-foreground">
-                        {request.email}
-                      </p>
-                    </div>
-                    <DeclinedRequestActions userId={request.id} name={request.name} />
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          ) : null}
-        </>
+          <div className="border-t border-border">
+            <PeopleList
+              people={team.people.map((person) => ({
+                ...person,
+                signedUpAt: person.signedUpAt?.toISOString() ?? null,
+                lastSignInAt: person.lastSignInAt?.toISOString() ?? null,
+                isSelf: person.userId === viewer.id,
+                isLastSuperAdmin:
+                  person.access === "SUPER_ADMIN" && team.activeSuperAdmins <= 1,
+              }))}
+            />
+          </div>
+        </Card>
       ) : null}
 
       {/* ------------------------------ Account ---------------------------- */}

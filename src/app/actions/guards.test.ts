@@ -108,7 +108,8 @@ describe("approval gate", () => {
       expect(body, `${loader} missing`).not.toBeNull();
       expect(body, `${loader} is unguarded`).toContain("await requirePageUser()");
     }
-    expect(bodyOf(repository, "export const loadTeam")).toContain(
+    // The people list reads every account's email: super admins only.
+    expect(bodyOf(read("src", "lib", "team.ts"), "export const loadTeamView")).toContain(
       'await requirePermission("users:manage")',
     );
 
