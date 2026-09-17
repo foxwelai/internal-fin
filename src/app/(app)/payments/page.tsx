@@ -44,7 +44,7 @@ import { loadPickerOptions } from "@/lib/finance/view-data";
 import { forecastableScheduleRollups, summariseMonth } from "@/lib/finance/engine";
 import { PAYMENT_METHOD_LABELS } from "@/lib/finance/labels";
 import { readParam, resolveMonth, withParams, type SearchParams } from "@/lib/finance/page-helpers";
-import { requireUser } from "@/lib/auth";
+import { requirePageUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 
 export const metadata: Metadata = { title: "Payments" };
@@ -70,7 +70,7 @@ export default async function PaymentsPage({
   const page = Number(readParam(params, "page") ?? 1) || 1;
 
   const [viewer, index, { projects: projectOptions }] = await Promise.all([
-    requireUser(),
+    requirePageUser(),
     loadFinanceIndex(),
     loadPickerOptions(),
   ]);

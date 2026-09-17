@@ -33,7 +33,7 @@ import { toProjectInitial } from "@/components/finance/options";
 import { PROJECT_STATUSES, type ProjectStatus } from "@/lib/finance/types";
 import { PROJECT_STATUS_LABELS, RECURRING_INTERVAL_SHORT } from "@/lib/finance/labels";
 import { readParam, resolveMonth, withParams, type SearchParams } from "@/lib/finance/page-helpers";
-import { requireUser } from "@/lib/auth";
+import { requirePageUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 
 export const metadata: Metadata = { title: "Clients & Projects" };
@@ -56,7 +56,7 @@ export default async function ClientsPage({
   const monthParam = formatMonthKey(resolveMonth(params));
 
   const [viewer, index, { clients: clientOptions, projects: projectOptions }, clientRecords] =
-    await Promise.all([requireUser(), loadFinanceIndex(), loadPickerOptions(), loadClients()]);
+    await Promise.all([requirePageUser(), loadFinanceIndex(), loadPickerOptions(), loadClients()]);
 
   const canWrite = can(viewer.role, "finance:write");
 

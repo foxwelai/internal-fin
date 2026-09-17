@@ -43,7 +43,7 @@ import { loadPickerOptions } from "@/lib/finance/view-data";
 import { toProjectInitial } from "@/components/finance/options";
 import { PAYMENT_METHOD_LABELS, RECURRING_INTERVAL_SHORT } from "@/lib/finance/labels";
 import { CommissionPaymentDialog } from "@/components/dialogs/commission-payment-dialog";
-import { requireUser } from "@/lib/auth";
+import { getCurrentUser, requirePageUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 
 export async function generateMetadata({
@@ -52,6 +52,8 @@ export async function generateMetadata({
   params: Promise<{ projectId: string }>;
 }): Promise<Metadata> {
   const { projectId } = await params;
+  // Metadata renders on its own and lands in <title>, so it checks access too.
+  if (!(await getCurrentUser())) return { title: "Project" };
   const project = await prisma.project.findUnique({ where: { id: projectId } });
   return { title: project?.name ?? "Project" };
 }
@@ -63,8 +65,8 @@ export default async function ProjectDetailPage({
 }) {
   const { projectId } = await params;
 
-  const [viewer, index, { clients: clientOptions, projects: projectOptions }, record] = await Promise.all([
-    requireUser(),
+  const viewer = await requirePageUser();
+  const [index, { clients: clientOptions, projects: projectOptions }, record] = await Promise.all([
     loadFinanceIndex(),
     loadPickerOptions(),
     prisma.project.findUnique({

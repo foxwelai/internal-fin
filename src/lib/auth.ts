@@ -1,95 +1,19 @@
 import { cache } from "react";
-import NextAuth from "next-auth";
-import Credentials from "next-auth/providers/credentials";
-import bcrypt from "bcryptjs";
-import { z } from "zod";
+import { auth, currentUser } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
 
 import { prisma } from "@/lib/db";
+import { accessStateOf, decideLink, type AccessState } from "@/lib/access";
 import { can, forbiddenMessage, type Permission } from "@/lib/permissions";
 import type { User, UserRole } from "@/generated/prisma";
 
 /**
- * AUTH_URL overrides the origin Auth.js derives from the request, and a value
- * left over from local development does real damage in production: redirects
- * go to localhost, and — because Auth.js decides `useSecureCookies` from that
- * URL's protocol — the session cookie loses its Secure flag on an HTTPS site.
- *
- * Left unset, Auth.js reads the host from the request, which is correct for the
- * production domain, every preview deployment and localhost alike. So refuse to
- * start rather than serve a downgraded session.
+ * Clerk handles sign-in, sessions, passwords and MFA. This file turns a Clerk
+ * session into an account in our `users` table, and that row — not Clerk, not
+ * the token — decides whether the person sees anything and with which role.
+ * It is read fresh on every request, so an approval, a role change or a
+ * deactivation takes effect on the very next click.
  */
-if (process.env.NODE_ENV === "production") {
-  const configuredUrl = process.env.AUTH_URL ?? process.env.NEXTAUTH_URL;
-  if (configuredUrl && /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])/i.test(configuredUrl)) {
-    throw new Error(
-      `AUTH_URL is set to "${configuredUrl}" in a production build.\n` +
-        "  Sign-in and sign-out would redirect people to localhost, and the session\n" +
-        "  cookie would be issued without the Secure flag.\n" +
-        "  Remove AUTH_URL (and NEXTAUTH_URL) from your hosting environment — the app\n" +
-        "  infers its URL from the request, which is what makes preview deploys work.",
-    );
-  }
-}
-
-const credentialsSchema = z.object({
-  email: z.string().trim().toLowerCase().email(),
-  password: z.string().min(1),
-});
-
-/**
- * Auth.js v5, email + password against the `users` table, JWT sessions.
- *
- * Accounts are created in the application, not in code: the seed only
- * bootstraps the first owner when the table is empty, and everyone after that
- * is added from the Team page. The token carries an id and nothing else that
- * matters — role and account status are read from the database on every
- * request, so a demotion or a deactivation takes effect immediately rather
- * than whenever the token happens to expire.
- */
-export const { handlers, signIn, signOut, auth } = NextAuth({
-  session: { strategy: "jwt", maxAge: 60 * 60 * 12 },
-  pages: { signIn: "/login" },
-  trustHost: true,
-  providers: [
-    Credentials({
-      credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
-      },
-      authorize: async (raw) => {
-        const parsed = credentialsSchema.safeParse(raw);
-        if (!parsed.success) return null;
-
-        const user = await prisma.user.findUnique({ where: { email: parsed.data.email } });
-
-        // Compare against a dummy hash when the account is missing so a wrong
-        // email and a wrong password take the same amount of time.
-        const hash =
-          user?.passwordHash ?? "$2b$12$invalidinvalidinvalidinvalidinvalidinvalidinvalidinvalidin";
-        const valid = await bcrypt.compare(parsed.data.password, hash);
-
-        if (!user || !valid || !user.isActive) return null;
-
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { lastLoginAt: new Date() },
-        });
-
-        return { id: user.id, email: user.email, name: user.name };
-      },
-    }),
-  ],
-  callbacks: {
-    jwt: ({ token, user }) => {
-      if (user) token.id = user.id as string;
-      return token;
-    },
-    session: ({ session, token }) => {
-      if (session.user) session.user.id = token.id as string;
-      return session;
-    },
-  },
-});
 
 export class UnauthorizedError extends Error {
   constructor(message = "You must be signed in to do that.") {
@@ -105,38 +29,130 @@ export class ForbiddenError extends Error {
   }
 }
 
-export type CurrentUser = Pick<User, "id" | "email" | "name" | "role" | "isActive">;
+export type CurrentUser = Pick<User, "id" | "email" | "name" | "role" | "isActive" | "approvedAt">;
+
+export type Account =
+  | { state: "signed-out" }
+  /** Signed in to Clerk, but we could not safely tie it to an account. */
+  | { state: "unlinked"; reason: "unverified-email" | "no-email" | "email-owned-by-another-account"; email: string | null }
+  | { state: AccessState; user: CurrentUser };
+
+const USER_FIELDS = {
+  id: true,
+  clerkUserId: true,
+  email: true,
+  name: true,
+  role: true,
+  isActive: true,
+  approvedAt: true,
+} as const;
 
 /**
- * The signed-in account, read from the database rather than the token.
- *
- * `cache()` makes this one query per request no matter how many components and
- * actions ask for it.
+ * The signed-in person and where they stand. `cache()` makes this one lookup
+ * per request however many components and actions ask.
  */
-export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
-  const session = await auth();
-  const id = session?.user?.id;
-  if (!id) return null;
+export const getAccount = cache(async (): Promise<Account> => {
+  const { userId: clerkUserId } = await auth();
+  if (!clerkUserId) return { state: "signed-out" };
 
-  const user = await prisma.user.findUnique({
-    where: { id },
-    select: { id: true, email: true, name: true, role: true, isActive: true },
-  });
+  // The common path: already linked. One indexed query, no call to Clerk.
+  const linked = await prisma.user.findUnique({ where: { clerkUserId }, select: USER_FIELDS });
+  if (linked) return { state: accessStateOf(linked), user: linked };
 
-  // Deleted or deactivated since the token was issued.
-  if (!user || !user.isActive) return null;
-  return user;
+  // First sign-in for this Clerk account — ask Clerk who it is.
+  const clerkUser = await currentUser();
+  const primary = clerkUser?.emailAddresses.find(
+    (address) => address.id === clerkUser.primaryEmailAddressId,
+  );
+  const email = primary?.emailAddress.trim().toLowerCase() ?? null;
+  const name =
+    [clerkUser?.firstName, clerkUser?.lastName].filter(Boolean).join(" ").trim() ||
+    clerkUser?.username ||
+    email?.split("@")[0] ||
+    "New user";
+
+  const byEmail = email
+    ? await prisma.user.findUnique({ where: { email }, select: USER_FIELDS })
+    : null;
+
+  const decision = decideLink(
+    {
+      clerkUserId,
+      email,
+      emailVerified: primary?.verification?.status === "verified",
+      name,
+    },
+    null,
+    byEmail,
+  );
+
+  switch (decision.kind) {
+    case "refuse":
+      return { state: "unlinked", reason: decision.reason, email };
+
+    case "claim": {
+      const user = await prisma.user.update({
+        where: { id: decision.userId },
+        data: { clerkUserId, lastLoginAt: new Date() },
+        select: USER_FIELDS,
+      });
+      return { state: accessStateOf(user), user };
+    }
+
+    case "request": {
+      try {
+        const user = await prisma.user.create({
+          data: { clerkUserId, email: decision.email, name: decision.name, role: "VIEWER" },
+          select: USER_FIELDS,
+        });
+        return { state: accessStateOf(user), user };
+      } catch {
+        // Two tabs signing in at once both try to create the row. The loser
+        // just reads what the winner wrote.
+        const user = await prisma.user.findUnique({ where: { clerkUserId }, select: USER_FIELDS });
+        if (!user) throw new Error("Could not record the access request.");
+        return { state: accessStateOf(user), user };
+      }
+    }
+
+    case "linked":
+      // Unreachable: the linked lookup above already returned.
+      throw new Error("Unexpected link state.");
+  }
 });
+
+/** The approved account, or null. Pages and routes use this. */
+export async function getCurrentUser(): Promise<CurrentUser | null> {
+  const account = await getAccount();
+  return account.state === "approved" ? account.user : null;
+}
 
 /**
  * Server-side gate for every protected read and mutation. Server Actions are
- * public HTTP endpoints, so each one calls this before touching the database —
- * middleware alone is not authorization.
+ * public HTTP endpoints, so each one calls this itself — the proxy only
+ * redirects signed-out visitors, which is not authorization.
  */
 export async function requireUser(): Promise<CurrentUser> {
-  const user = await getCurrentUser();
-  if (!user) throw new UnauthorizedError();
-  return user;
+  const account = await getAccount();
+  if (account.state === "signed-out") throw new UnauthorizedError();
+  if (account.state !== "approved") {
+    throw new ForbiddenError("Your access has not been approved yet.");
+  }
+  return account.user;
+}
+
+/**
+ * The page-rendering variant, used by the data loaders. A signed-out visitor is
+ * sent to sign in rather than shown an error; an unapproved one is refused, and
+ * the layout shows them the waiting screen instead of the page.
+ */
+export async function requirePageUser(): Promise<CurrentUser> {
+  const account = await getAccount();
+  if (account.state === "signed-out") redirect("/sign-in");
+  if (account.state !== "approved") {
+    throw new ForbiddenError("Your access has not been approved yet.");
+  }
+  return account.user;
 }
 
 /** As `requireUser`, and additionally that the role carries `permission`. */

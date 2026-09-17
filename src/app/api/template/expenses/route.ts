@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 
-import { auth } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/auth";
 import { csvAttachmentHeaders, toCsv, withBom } from "@/lib/csv";
 import { EXPENSE_CATEGORY_LABELS } from "@/lib/finance/labels";
 
 /** A filled-in sample so the expected columns are obvious at a glance. */
 export async function GET() {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: "Not authorised" }, { status: 401 });
+  if (!(await getCurrentUser())) {
+    return NextResponse.json({ error: "Not authorised" }, { status: 401 });
+  }
 
   const csv = toCsv([
     ["Name", "Category", "Planned amount", "Due date", "Notes"],

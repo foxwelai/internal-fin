@@ -1,6 +1,7 @@
 import { cache } from "react";
 
 import { prisma } from "@/lib/db";
+import { requirePageUser, requirePermission } from "@/lib/auth";
 import { todayInIST } from "@/lib/dates";
 
 import { indexDataset, type FinanceIndex } from "./engine";
@@ -175,11 +176,16 @@ export async function fetchFinanceDataset(): Promise<FinanceDataset> {
 }
 
 /** Request-scoped: every server component in one render shares this snapshot. */
-export const loadFinanceIndex = cache(
-  async (): Promise<FinanceIndex> => indexDataset(await fetchFinanceDataset()),
-);
+export const loadFinanceIndex = cache(async (): Promise<FinanceIndex> => {
+  // Checked here, at the data source, not only in the layout: Next.js renders
+  // route segments independently, so a layout that shows a waiting screen does
+  // not stop a page from running. Every screen reads through these loaders.
+  await requirePageUser();
+  return indexDataset(await fetchFinanceDataset());
+});
 
 export const loadSettings = cache(async () => {
+  await requirePageUser();
   const settings = await prisma.appSettings.findUnique({ where: { id: "singleton" } });
   return (
     settings ?? {
@@ -193,21 +199,24 @@ export const loadSettings = cache(async () => {
   );
 });
 
-export const loadClients = cache(async () =>
-  prisma.client.findMany({
+export const loadClients = cache(async () => {
+  await requirePageUser();
+  return prisma.client.findMany({
     orderBy: [{ archivedAt: "asc" }, { name: "asc" }],
     include: { _count: { select: { projects: true } } },
-  }),
-);
+  });
+});
 
 /** True when any row is flagged as demo data — drives the Settings banner. */
 export const hasDemoData = cache(async () => {
+  await requirePageUser();
   const count = await prisma.client.count({ where: { isDemo: true } });
   return count > 0;
 });
 
-/** The team, for the Settings page. Ordered most privileged first. */
+/** The team, for the Settings page: requests awaiting a decision, then members. */
 export const loadTeam = cache(async () => {
+  await requirePermission("users:manage");
   const users = await prisma.user.findMany({
     select: {
       id: true,
@@ -215,21 +224,33 @@ export const loadTeam = cache(async () => {
       email: true,
       role: true,
       isActive: true,
+      approvedAt: true,
+      clerkUserId: true,
       lastLoginAt: true,
       createdAt: true,
-      createdBy: { select: { name: true } },
+      approvedBy: { select: { name: true } },
     },
-    orderBy: [{ isActive: "desc" }, { role: "asc" }, { name: "asc" }],
+    orderBy: [{ createdAt: "asc" }],
   });
 
-  const activeOwners = users.filter((user) => user.role === "OWNER" && user.isActive).length;
-  return { users, activeOwners };
+  const pending = users.filter((user) => user.approvedAt === null && user.isActive);
+  const declined = users.filter((user) => user.approvedAt === null && !user.isActive);
+  const members = users
+    .filter((user) => user.approvedAt !== null)
+    .sort((a, b) => Number(b.isActive) - Number(a.isActive) || a.name.localeCompare(b.name));
+
+  const activeSuperAdmins = members.filter(
+    (user) => user.role === "SUPER_ADMIN" && user.isActive,
+  ).length;
+
+  return { pending, declined, members, activeSuperAdmins };
 });
 
 /** Loans and their repayments, for the Loans page. */
-export const loadLoans = cache(async () =>
-  prisma.loan.findMany({
+export const loadLoans = cache(async () => {
+  await requirePageUser();
+  return prisma.loan.findMany({
     orderBy: [{ status: "asc" }, { receivedOn: "desc" }],
     include: { payments: { orderBy: { paidOn: "desc" } } },
-  }),
-);
+  });
+});

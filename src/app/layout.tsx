@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { Toaster } from "sonner";
+import { ClerkProvider } from "@clerk/nextjs";
+import { shadcn } from "@clerk/ui/themes";
 
 import "./globals.css";
 
@@ -39,7 +41,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en-IN" className="dark">
       <body className={`${inter.variable} ${jetbrainsMono.variable} antialiased`}>
-        {children}
+        {/* Inside <body>, as Clerk requires. The shadcn theme reads this app's
+            own design tokens, so Clerk's screens share the dark palette. */}
+        <ClerkProvider
+          appearance={{ theme: shadcn }}
+          signInUrl="/sign-in"
+          signUpUrl="/sign-up"
+          signInFallbackRedirectUrl="/overview"
+          signUpFallbackRedirectUrl="/overview"
+          afterSignOutUrl="/sign-in"
+        >
+          {children}
         <Toaster
           position="bottom-right"
           closeButton
@@ -54,6 +66,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             },
           }}
         />
+        </ClerkProvider>
       </body>
     </html>
   );

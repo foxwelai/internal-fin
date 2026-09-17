@@ -28,7 +28,7 @@ import { formatDay } from "@/lib/dates";
 import { loadFinanceIndex } from "@/lib/finance/repository";
 import { loadPickerOptions } from "@/lib/finance/view-data";
 import { PAYMENT_METHOD_LABELS } from "@/lib/finance/labels";
-import { requireUser } from "@/lib/auth";
+import { getCurrentUser, requirePageUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 
 export async function generateMetadata({
@@ -37,6 +37,8 @@ export async function generateMetadata({
   params: Promise<{ clientId: string }>;
 }): Promise<Metadata> {
   const { clientId } = await params;
+  // Metadata renders on its own and lands in <title>, so it checks access too.
+  if (!(await getCurrentUser())) return { title: "Client" };
   const client = await prisma.client.findUnique({ where: { id: clientId } });
   return { title: client?.name ?? "Client" };
 }
@@ -48,8 +50,8 @@ export default async function ClientDetailPage({
 }) {
   const { clientId } = await params;
 
-  const [viewer, client, index, { clients: clientOptions }] = await Promise.all([
-    requireUser(),
+  const viewer = await requirePageUser();
+  const [client, index, { clients: clientOptions }] = await Promise.all([
     prisma.client.findUnique({ where: { id: clientId } }),
     loadFinanceIndex(),
     loadPickerOptions(),

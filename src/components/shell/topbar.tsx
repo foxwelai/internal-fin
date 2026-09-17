@@ -12,13 +12,11 @@ export function Topbar({
   clients,
   projects,
   today,
-  user,
 }: {
   currentMonth: MonthKey;
   clients: ClientOption[];
   projects: ProjectOption[];
   today: string;
-  user: { name?: string | null; email?: string | null };
 }) {
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-background/85 backdrop-blur-md">
@@ -38,7 +36,7 @@ export function Topbar({
             fallbackMonth={currentMonth}
             today={today}
           />
-          <UserMenu user={user} />
+          <UserMenu />
         </div>
       </div>
     </header>

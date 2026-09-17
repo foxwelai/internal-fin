@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { Download, Plus, ShieldCheck, Users } from "lucide-react";
+import { Clock, Download, Plus, Users } from "lucide-react";
 
 import { PageHeader } from "@/components/finance/page-header";
 import { Money } from "@/components/finance/money";
@@ -9,7 +9,6 @@ import {
   CashMovementRowActions,
   CompanySettingsForm,
   DemoDataControls,
-  PasswordForm,
 } from "@/components/finance/settings-forms";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,8 +22,8 @@ import {
   TableWrap,
 } from "@/components/ui/table";
 
-import { requireUser } from "@/lib/auth";
-import { can, ROLE_DESCRIPTIONS, ROLE_LABELS } from "@/lib/permissions";
+import { requirePageUser } from "@/lib/auth";
+import { can, ROLE_LABELS } from "@/lib/permissions";
 import { prisma } from "@/lib/db";
 import {
   formatDay,
@@ -37,6 +36,10 @@ import { formatForCsv, toWire } from "@/lib/money";
 import { hasDemoData, loadSettings, loadTeam } from "@/lib/finance/repository";
 import { UserDialog } from "@/components/dialogs/user-dialog";
 import { UserRowActions } from "@/components/finance/user-row-actions";
+import {
+  DeclinedRequestActions,
+  PendingRequestActions,
+} from "@/components/finance/pending-request-actions";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/finance/empty-state";
 import { CASH_MOVEMENT_LABELS } from "@/lib/finance/labels";
@@ -45,7 +48,7 @@ import { signedCashMovement } from "@/lib/finance/engine";
 export const metadata: Metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
-  const viewer = await requireUser();
+  const viewer = await requirePageUser();
   const canManageUsers = can(viewer.role, "users:manage");
   const canManageSettings = can(viewer.role, "settings:manage");
   const canWrite = can(viewer.role, "finance:write");
@@ -231,109 +234,166 @@ export default async function SettingsPage() {
       {/* -------------------------------- Team ----------------------------- */}
 
       {canManageUsers && team ? (
-        <Card id="team" className="overflow-hidden">
-          <CardHeader className="flex-row items-start justify-between gap-3">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="size-4 text-faint-foreground" />
-                Team
-              </CardTitle>
-              <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
-                Accounts live in the database and are managed here — nothing about who may do what
-                is baked into the code or an environment variable. A role change takes effect on
-                that person&rsquo;s very next request.
-              </p>
-            </div>
-            <UserDialog>
-              <Button size="sm">
-                <Plus />
-                Add person
-              </Button>
-            </UserDialog>
-          </CardHeader>
-
-          <TableWrap>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="hidden md:table-cell">Last signed in</TableHead>
-                  <TableHead className="hidden lg:table-cell">Added by</TableHead>
-                  <TableHead className="w-10" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {team.users.map((member) => {
-                  const isSelf = member.id === viewer.id;
-                  const isLastActiveOwner =
-                    member.role === "OWNER" && member.isActive && team.activeOwners <= 1;
-                  return (
-                    <TableRow key={member.id}>
-                      <TableCell>
-                        <span className="text-[13px] font-medium">
-                          {member.name}
-                          {isSelf ? (
-                            <span className="ml-1.5 text-[11px] text-faint-foreground">you</span>
-                          ) : null}
-                        </span>
-                        <span className="block font-mono tabular text-[12px] text-muted-foreground">
-                          {member.email}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={member.role === "OWNER" ? "brand" : "default"}>
-                          {ROLE_LABELS[member.role]}
-                        </Badge>
-                        <span className="mt-1 block max-w-[18rem] text-[11px] leading-snug text-faint-foreground">
-                          {ROLE_DESCRIPTIONS[member.role]}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        {member.isActive ? (
-                          <Badge variant="positive">Active</Badge>
-                        ) : (
-                          <Badge variant="negative">Deactivated</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="hidden whitespace-nowrap font-mono tabular text-[13px] text-muted-foreground md:table-cell">
-                        {member.lastLoginAt ? formatDay(member.lastLoginAt) : "never"}
-                      </TableCell>
-                      <TableCell className="hidden text-[13px] text-muted-foreground lg:table-cell">
-                        {member.createdBy?.name ?? "initial setup"}
-                      </TableCell>
-                      <TableCell>
-                        <UserRowActions
-                          isActive={member.isActive}
-                          isSelf={isSelf}
-                          isLastActiveOwner={isLastActiveOwner}
-                          user={{
-                            id: member.id,
-                            name: member.name,
-                            email: member.email,
-                            role: member.role,
-                          }}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </TableWrap>
-
-          {team.users.length === 1 ? (
-            <CardContent className="pt-4">
-              <EmptyState
-                icon={ShieldCheck}
-                title="You are the only account"
-                description="Add colleagues with the role that fits: an Admin records money but cannot manage people, a Viewer can only look."
-                compact
-              />
-            </CardContent>
+        <>
+          {team.pending.length > 0 ? (
+            <Card id="requests" className="overflow-hidden border-warning/30">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Clock className="size-4 text-warning" />
+                  Pending requests
+                  <span className="rounded-full border border-warning/35 bg-warning-soft px-1.5 py-px font-mono text-[11px] text-warning">
+                    {team.pending.length}
+                  </span>
+                </CardTitle>
+                <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+                  These people signed in with Clerk and are looking at a &ldquo;waiting for
+                  approval&rdquo; screen. They see no data until you approve them with a role.
+                </p>
+              </CardHeader>
+              <ul className="divide-y divide-border border-t border-border">
+                {team.pending.map((request) => (
+                  <li
+                    key={request.id}
+                    className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-medium">{request.name}</p>
+                      <p className="font-mono tabular text-[12px] text-muted-foreground">
+                        {request.email}
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-faint-foreground">
+                        Asked {formatDay(request.createdAt)}
+                      </p>
+                    </div>
+                    <PendingRequestActions
+                      userId={request.id}
+                      name={request.name}
+                      email={request.email}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </Card>
           ) : null}
-        </Card>
+
+          <Card id="team" className="overflow-hidden">
+            <CardHeader className="flex-row items-start justify-between gap-3">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="size-4 text-faint-foreground" />
+                  Team
+                </CardTitle>
+                <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+                  Sign-in is handled by Clerk; access is decided here, in the database. A role
+                  change takes effect on that person&rsquo;s very next request.
+                </p>
+              </div>
+              <UserDialog>
+                <Button size="sm">
+                  <Plus />
+                  Give access
+                </Button>
+              </UserDialog>
+            </CardHeader>
+
+            <TableWrap>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="hidden md:table-cell">Last signed in</TableHead>
+                    <TableHead className="hidden lg:table-cell">Approved by</TableHead>
+                    <TableHead className="w-10" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {team.members.map((member) => {
+                    const isSelf = member.id === viewer.id;
+                    const isLastSuperAdmin =
+                      member.role === "SUPER_ADMIN" && member.isActive && team.activeSuperAdmins <= 1;
+                    return (
+                      <TableRow key={member.id}>
+                        <TableCell>
+                          <span className="text-[13px] font-medium">
+                            {member.name}
+                            {isSelf ? (
+                              <span className="ml-1.5 text-[11px] text-faint-foreground">you</span>
+                            ) : null}
+                          </span>
+                          <span className="block font-mono tabular text-[12px] text-muted-foreground">
+                            {member.email}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={member.role === "SUPER_ADMIN" ? "brand" : "default"}>
+                            {ROLE_LABELS[member.role]}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {!member.isActive ? (
+                            <Badge variant="negative">Deactivated</Badge>
+                          ) : member.clerkUserId ? (
+                            <Badge variant="positive">Active</Badge>
+                          ) : (
+                            <Badge variant="outline">Not signed in yet</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="hidden whitespace-nowrap font-mono tabular text-[13px] text-muted-foreground md:table-cell">
+                          {member.lastLoginAt ? formatDay(member.lastLoginAt) : "—"}
+                        </TableCell>
+                        <TableCell className="hidden text-[13px] text-muted-foreground lg:table-cell">
+                          {member.approvedBy?.name ?? "initial setup"}
+                        </TableCell>
+                        <TableCell>
+                          <UserRowActions
+                            isActive={member.isActive}
+                            isSelf={isSelf}
+                            isLastSuperAdmin={isLastSuperAdmin}
+                            user={{
+                              id: member.id,
+                              name: member.name,
+                              email: member.email,
+                              role: member.role,
+                            }}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </TableWrap>
+          </Card>
+
+          {team.declined.length > 0 ? (
+            <Card className="overflow-hidden">
+              <CardHeader>
+                <CardTitle>Declined requests</CardTitle>
+                <p className="mt-1 text-[13px] text-muted-foreground">
+                  Kept so they don&rsquo;t reappear every time that person signs in.
+                </p>
+              </CardHeader>
+              <ul className="divide-y divide-border border-t border-border">
+                {team.declined.map((request) => (
+                  <li
+                    key={request.id}
+                    className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-medium">{request.name}</p>
+                      <p className="font-mono tabular text-[12px] text-muted-foreground">
+                        {request.email}
+                      </p>
+                    </div>
+                    <DeclinedRequestActions userId={request.id} name={request.name} />
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          ) : null}
+        </>
       ) : null}
 
       {/* ------------------------------ Account ---------------------------- */}
@@ -343,15 +403,11 @@ export default async function SettingsPage() {
           <CardTitle>Your account</CardTitle>
           <p className="text-[13px] leading-relaxed text-muted-foreground">
             Signed in as <span className="text-foreground">{viewer.email}</span>, with the role{" "}
-            <span className="text-foreground">{ROLE_LABELS[viewer.role]}</span> —{" "}
-            {ROLE_DESCRIPTIONS[viewer.role].charAt(0).toLowerCase() +
-              ROLE_DESCRIPTIONS[viewer.role].slice(1)}{" "}
-            Accounts are created by an owner on this page; there is no self sign-up.
+            <span className="text-foreground">{ROLE_LABELS[viewer.role]}</span>. Your name,
+            password, email and two-step verification are managed by Clerk — open them from your
+            avatar in the top right.
           </p>
         </CardHeader>
-        <CardContent>
-          <PasswordForm />
-        </CardContent>
       </Card>
 
       <Card>

@@ -46,3 +46,6 @@ next-env.d.ts
 
 # Prisma generates this on install and before every build.
 src/generated/
+
+# Clerk keyless development keys (local only).
+.clerk/

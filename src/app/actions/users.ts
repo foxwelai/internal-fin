@@ -1,14 +1,13 @@
 "use server";
 
-import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 
 import { requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { ROLE_LABELS } from "@/lib/permissions";
 import {
-  createUserSchema,
-  resetPasswordSchema,
+  addUserSchema,
+  approveUserSchema,
   setUserActiveSchema,
   updateUserSchema,
 } from "@/lib/validation/users";
@@ -23,45 +22,112 @@ import {
   type ActionState,
 } from "./helpers";
 
-const BCRYPT_COST = 12;
+/**
+ * People and access. Only a super admin reaches any of these.
+ *
+ * Sign-in belongs to Clerk, so nothing here touches a password. What lives
+ * here is the decision Clerk cannot make: whether a signed-in person may see
+ * the company's finances, and with which role.
+ */
 
 function revalidateTeam() {
-  revalidatePath("/settings");
+  // The layout reads access on every request; refresh everything so an
+  // approval reaches the person without them reloading twice.
+  revalidatePath("/", "layout");
 }
 
 /**
- * Guards the last way back in.
- *
- * Demoting, deactivating or deleting the only active owner would leave the
- * installation with nobody able to manage people or settings, and no way to fix
- * it short of a database console. Every path that could do that goes through
- * here first.
+ * Guards the last way back in. Demoting, deactivating or deleting the only
+ * active super admin would leave nobody able to approve anyone, with no fix
+ * short of a database console.
  */
-async function wouldStrandInstallation(userId: string): Promise<boolean> {
-  const otherActiveOwners = await prisma.user.count({
-    where: { role: "OWNER", isActive: true, id: { not: userId } },
+async function isLastSuperAdmin(userId: string): Promise<boolean> {
+  const others = await prisma.user.count({
+    where: {
+      role: "SUPER_ADMIN",
+      isActive: true,
+      approvedAt: { not: null },
+      id: { not: userId },
+    },
   });
-  return otherActiveOwners === 0;
+  return others === 0;
 }
 
-export async function createUser(_prev: ActionState, formData: FormData): Promise<ActionState> {
+/** Grant a pending request, choosing the role at the same moment. */
+export async function approveUser(_prev: ActionState, formData: FormData): Promise<ActionState> {
   return runAction(async () => {
     const actor = await requirePermission("users:manage");
 
-    const parsed = createUserSchema.safeParse({
-      name: formValue(formData, "name"),
-      email: formValue(formData, "email"),
+    const parsed = approveUserSchema.safeParse({
+      id: formValue(formData, "id"),
       role: formValue(formData, "role"),
-      password: formValue(formData, "password"),
-      confirmPassword: formValue(formData, "confirmPassword"),
     });
     if (!parsed.success) return fromZodError(parsed.error);
 
-    const { name, email, role, password } = parsed.data;
+    const target = await prisma.user.findUnique({ where: { id: parsed.data.id } });
+    if (!target) return failure("That request no longer exists.");
+
+    const user = await prisma.user.update({
+      where: { id: target.id },
+      data: {
+        role: parsed.data.role as UserRole,
+        approvedAt: new Date(),
+        approvedById: actor.id,
+        isActive: true,
+      },
+    });
+
+    revalidateTeam();
+    return success(
+      `${user.name} approved as ${ROLE_LABELS[user.role]}. They get in on their next page load.`,
+    );
+  });
+}
+
+/** Turn down a request. Kept rather than deleted, so it is not re-raised on the next sign-in. */
+export async function declineUser(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    const actor = await requirePermission("users:manage");
+
+    const id = formValue(formData, "id");
+    if (!id) return failure("Missing request reference.");
+    if (id === actor.id) return failure("You cannot decline your own access.");
+
+    const user = await prisma.user.update({
+      where: { id },
+      data: { isActive: false, approvedAt: null, approvedById: null },
+    });
+
+    revalidateTeam();
+    return success(`${user.name}'s request was declined. They will see no data.`);
+  });
+}
+
+/**
+ * Let someone in ahead of time. They are approved with this role the first
+ * time they sign in to Clerk with this email — once Clerk has verified it.
+ */
+export async function addUser(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  return runAction(async () => {
+    const actor = await requirePermission("users:manage");
+
+    const parsed = addUserSchema.safeParse({
+      name: formValue(formData, "name"),
+      email: formValue(formData, "email"),
+      role: formValue(formData, "role"),
+    });
+    if (!parsed.success) return fromZodError(parsed.error);
+
+    const { name, email, role } = parsed.data;
 
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
-      return failure(`${email} already has an account.`, { email: ["Already in use"] });
+      return failure(
+        existing.approvedAt
+          ? `${email} already has access.`
+          : `${email} has already asked for access — approve them under Pending requests.`,
+        { email: ["Already known"] },
+      );
     }
 
     const user = await prisma.user.create({
@@ -69,14 +135,15 @@ export async function createUser(_prev: ActionState, formData: FormData): Promis
         name,
         email,
         role: role as UserRole,
-        passwordHash: await bcrypt.hash(password, BCRYPT_COST),
+        approvedAt: new Date(),
+        approvedById: actor.id,
         createdById: actor.id,
       },
     });
 
     revalidateTeam();
     return success(
-      `${user.name} added as ${ROLE_LABELS[user.role]}. Share the password with them and ask them to change it from Settings.`,
+      `${user.name} can now sign in with ${user.email} as ${ROLE_LABELS[user.role]}.`,
       user.id,
     );
   });
@@ -98,11 +165,10 @@ export async function updateUser(_prev: ActionState, formData: FormData): Promis
     const target = await prisma.user.findUnique({ where: { id } });
     if (!target) return failure("That account no longer exists.");
 
-    const losingOwnership = target.role === "OWNER" && role !== "OWNER";
-    if (losingOwnership && (await wouldStrandInstallation(id))) {
+    if (target.role === "SUPER_ADMIN" && role !== "SUPER_ADMIN" && (await isLastSuperAdmin(id))) {
       return failure(
-        `${target.name} is the only active owner. Make someone else an owner first, otherwise nobody could manage people or settings.`,
-        { role: ["The last owner cannot be demoted"] },
+        `${target.name} is the only active super admin. Make someone else a super admin first, otherwise nobody could approve people.`,
+        { role: ["The last super admin cannot be demoted"] },
       );
     }
 
@@ -129,17 +195,13 @@ export async function setUserActive(_prev: ActionState, formData: FormData): Pro
     const { id } = parsed.data;
     const active = parsed.data.active === "true";
 
-    if (!active && id === actor.id) {
-      return failure("You cannot deactivate your own account.");
-    }
+    if (!active && id === actor.id) return failure("You cannot deactivate your own account.");
 
     const target = await prisma.user.findUnique({ where: { id } });
     if (!target) return failure("That account no longer exists.");
 
-    if (!active && target.role === "OWNER" && (await wouldStrandInstallation(id))) {
-      return failure(
-        `${target.name} is the only active owner. Promote someone else first.`,
-      );
+    if (!active && target.role === "SUPER_ADMIN" && (await isLastSuperAdmin(id))) {
+      return failure(`${target.name} is the only active super admin. Promote someone else first.`);
     }
 
     const user = await prisma.user.update({ where: { id }, data: { isActive: active } });
@@ -147,37 +209,8 @@ export async function setUserActive(_prev: ActionState, formData: FormData): Pro
     revalidateTeam();
     return success(
       active
-        ? `${user.name} can sign in again.`
-        : `${user.name} is deactivated and loses access on their next request. Their history is kept.`,
-    );
-  });
-}
-
-export async function resetUserPassword(
-  _prev: ActionState,
-  formData: FormData,
-): Promise<ActionState> {
-  return runAction(async () => {
-    await requirePermission("users:manage");
-
-    const parsed = resetPasswordSchema.safeParse({
-      id: formValue(formData, "id"),
-      password: formValue(formData, "password"),
-      confirmPassword: formValue(formData, "confirmPassword"),
-    });
-    if (!parsed.success) return fromZodError(parsed.error);
-
-    const target = await prisma.user.findUnique({ where: { id: parsed.data.id } });
-    if (!target) return failure("That account no longer exists.");
-
-    await prisma.user.update({
-      where: { id: target.id },
-      data: { passwordHash: await bcrypt.hash(parsed.data.password, BCRYPT_COST) },
-    });
-
-    revalidateTeam();
-    return success(
-      `Password reset for ${target.name}. Their existing sessions stay valid until they expire — deactivate and reactivate the account to cut them off immediately.`,
+        ? `${user.name} can get in again.`
+        : `${user.name} is deactivated and loses access on their next request.`,
     );
   });
 }
@@ -193,13 +226,15 @@ export async function deleteUser(_prev: ActionState, formData: FormData): Promis
     const target = await prisma.user.findUnique({ where: { id } });
     if (!target) return failure("That account no longer exists.");
 
-    if (target.role === "OWNER" && (await wouldStrandInstallation(id))) {
-      return failure(`${target.name} is the only active owner and cannot be deleted.`);
+    if (target.role === "SUPER_ADMIN" && (await isLastSuperAdmin(id))) {
+      return failure(`${target.name} is the only active super admin and cannot be removed.`);
     }
 
     await prisma.user.delete({ where: { id } });
 
     revalidateTeam();
-    return success(`${target.name}'s account was deleted.`);
+    return success(
+      `${target.name} was removed. If they sign in again they will appear as a new request.`,
+    );
   });
 }

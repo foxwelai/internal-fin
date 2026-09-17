@@ -61,7 +61,7 @@ import {
 } from "@/lib/finance/labels";
 import { EXPENSE_CATEGORIES, type ExpenseCategory } from "@/lib/finance/types";
 import { readParam, resolveMonth, withParams, type SearchParams } from "@/lib/finance/page-helpers";
-import { requireUser } from "@/lib/auth";
+import { requirePageUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 
 export const metadata: Metadata = { title: "Monthly Expenses" };
@@ -81,8 +81,8 @@ export default async function ExpensesPage({
   const stateFilter = readParam(params, "state");
   const query = (readParam(params, "q") ?? "").trim().toLowerCase();
 
-  const [viewer, index, templates, payments] = await Promise.all([
-    requireUser(),
+  const viewer = await requirePageUser();
+  const [index, templates, payments] = await Promise.all([
     loadFinanceIndex(),
     prisma.recurringExpenseTemplate.findMany({
       orderBy: [{ isActive: "desc" }, { name: "asc" }],

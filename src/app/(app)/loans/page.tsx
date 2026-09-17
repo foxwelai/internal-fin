@@ -21,7 +21,7 @@ import {
   TableWrap,
 } from "@/components/ui/table";
 
-import { requireUser } from "@/lib/auth";
+import { requirePageUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { formatDay, formatRelativeDay, toDateInputValue, todayInIST } from "@/lib/dates";
 import { formatPercent, percentOf, toWire } from "@/lib/money";
@@ -33,7 +33,7 @@ export const metadata: Metadata = { title: "Loans" };
 
 export default async function LoansPage() {
   const [viewer, index, loans] = await Promise.all([
-    requireUser(),
+    requirePageUser(),
     loadFinanceIndex(),
     loadLoans(),
   ]);

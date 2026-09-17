@@ -1,9 +1,6 @@
 "use server";
 
-import bcrypt from "bcryptjs";
-import { z } from "zod";
-
-import { requirePermission, requireUser } from "@/lib/auth";
+import { requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { cashMovementSchema, settingsSchema } from "@/lib/validation/schemas";
 import { formatINR } from "@/lib/money";
@@ -101,49 +98,5 @@ export async function deleteCashMovement(
     const movement = await prisma.cashMovement.delete({ where: { id } });
     revalidateFinance();
     return success(`${movement.label} removed.`);
-  });
-}
-
-const passwordSchema = z
-  .object({
-    currentPassword: z.string().min(1, "Enter your current password"),
-    newPassword: z
-      .string()
-      .min(12, "Use at least 12 characters")
-      .max(200, "That password is too long"),
-    confirmPassword: z.string(),
-  })
-  .refine((value) => value.newPassword === value.confirmPassword, {
-    message: "The two new passwords do not match",
-    path: ["confirmPassword"],
-  });
-
-export async function changePassword(_prev: ActionState, formData: FormData): Promise<ActionState> {
-  return runAction(async () => {
-    const current = await requireUser();
-
-    const parsed = passwordSchema.safeParse({
-      currentPassword: formValue(formData, "currentPassword"),
-      newPassword: formValue(formData, "newPassword"),
-      confirmPassword: formValue(formData, "confirmPassword"),
-    });
-    if (!parsed.success) return fromZodError(parsed.error);
-
-    const user = await prisma.user.findUnique({ where: { id: current.id } });
-    if (!user) return failure("Your account could not be found.");
-
-    const valid = await bcrypt.compare(parsed.data.currentPassword, user.passwordHash);
-    if (!valid) {
-      return failure("That is not your current password.", {
-        currentPassword: ["Incorrect password"],
-      });
-    }
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { passwordHash: await bcrypt.hash(parsed.data.newPassword, 12) },
-    });
-
-    return success("Password changed.");
   });
 }

@@ -3,6 +3,7 @@ import "server-only";
 import { toWire } from "@/lib/money";
 import { toDateInputValue } from "@/lib/dates";
 import { prisma } from "@/lib/db";
+import { requirePageUser } from "@/lib/auth";
 
 import { loadClients, loadFinanceIndex } from "./repository";
 import type { ClientOption, ProjectOption } from "@/components/finance/options";
@@ -12,6 +13,7 @@ export async function loadPickerOptions(): Promise<{
   clients: ClientOption[];
   projects: ProjectOption[];
 }> {
+  await requirePageUser();
   const [index, clients, details] = await Promise.all([
     loadFinanceIndex(),
     loadClients(),

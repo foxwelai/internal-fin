@@ -24,26 +24,26 @@ export const PERMISSIONS = [
 export type Permission = (typeof PERMISSIONS)[number];
 
 const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
-  OWNER: ["finance:read", "finance:write", "finance:delete", "settings:manage", "users:manage"],
+  SUPER_ADMIN: ["finance:read", "finance:write", "finance:delete", "settings:manage", "users:manage"],
   ADMIN: ["finance:read", "finance:write", "finance:delete"],
   VIEWER: ["finance:read"],
 };
 
 export const ROLE_LABELS: Record<UserRole, string> = {
-  OWNER: "Owner",
+  SUPER_ADMIN: "Super Admin",
   ADMIN: "Admin",
   VIEWER: "Viewer",
 };
 
 export const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
-  OWNER:
-    "Full access, including adding people, changing their role and editing company settings.",
+  SUPER_ADMIN:
+    "Root access: everything, including approving people, changing roles and company settings.",
   ADMIN: "Can record and edit everything financial. Cannot manage people or company settings.",
   VIEWER: "Can see every figure but change nothing.",
 };
 
 /** Ordered most to least privileged — used for sorting and for select menus. */
-export const ROLE_ORDER: UserRole[] = ["OWNER", "ADMIN", "VIEWER"];
+export const ROLE_ORDER: UserRole[] = ["SUPER_ADMIN", "ADMIN", "VIEWER"];
 
 export function can(role: UserRole, permission: Permission): boolean {
   return ROLE_PERMISSIONS[role].includes(permission);
@@ -62,5 +62,5 @@ export function forbiddenMessage(role: UserRole, permission: Permission): string
     "settings:manage": "change company settings",
     "users:manage": "manage people",
   };
-  return `Your account is a ${ROLE_LABELS[role]}, which cannot ${what[permission]}. Ask an owner if you need this.`;
+  return `Your account is a ${ROLE_LABELS[role]}, which cannot ${what[permission]}. Ask a super admin if you need this.`;
 }

@@ -15,8 +15,8 @@ const ACTIONS_DIR = path.join(process.cwd(), "src", "app", "actions");
 /** Files that hold no actions, or whose auth is inherently different. */
 const NOT_ACTIONS = new Set(["helpers.ts", "state.ts", "guards.test.ts"]);
 
-/** Signing in is the one thing you may do while signed out. */
-const PUBLIC_ACTIONS = new Set(["signInWithCredentials", "signOutAction"]);
+/** Sign-in and sign-out are Clerk's; no action here is public. */
+const PUBLIC_ACTIONS = new Set<string>();
 
 function actionFiles(): string[] {
   return readdirSync(ACTIONS_DIR)
@@ -88,45 +88,47 @@ describe("server action authorisation", () => {
   });
 });
 
-/** Strips comments so a rule cannot be tripped by prose that merely names it. */
-function codeOnly(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
-}
+describe("approval gate", () => {
+  const read = (...parts: string[]) => readFileSync(path.join(process.cwd(), ...parts), "utf8");
 
-describe("auth redirects", () => {
-  const source = readFileSync(path.join(ACTIONS_DIR, "auth.ts"), "utf8");
-  const code = codeOnly(source);
+  /** One export's source, ending where the next export begins — never spilling into it. */
+  const bodyOf = (source: string, declaration: string) => {
+    const start = source.indexOf(declaration);
+    if (start === -1) return null;
+    const next = source.indexOf("\nexport ", start + declaration.length);
+    return source.slice(start, next === -1 ? source.length : next);
+  };
 
-  /**
-   * `redirectTo` makes Auth.js build an absolute URL from AUTH_URL, which is
-   * how a leftover local value sends people on the deployed site to localhost.
-   * Redirecting with Next's own `redirect()` keeps the browser on whichever
-   * host served the request.
-   */
-  it("never hands redirectTo to Auth.js", () => {
-    expect(code).not.toMatch(/redirectTo\s*:/);
-  });
-
-  it("opts out of Auth.js redirects and navigates itself", () => {
-    expect(code).toContain("redirect: false");
-    expect(code).toContain("redirect(AFTER_SIGN_IN)");
-    expect(code).toContain("redirect(AFTER_SIGN_OUT)");
-  });
-
-  it("redirects to paths, never absolute URLs", () => {
-    const targets = [...code.matchAll(/^const AFTER_SIGN_(?:IN|OUT) = "([^"]+)";$/gm)].map(
-      (match) => match[1],
+  it("guards every page-facing data loader, not only the layout", () => {
+    // A layout does not stop route segments from rendering, so the check has
+    // to live where the data is read.
+    const repository = read("src", "lib", "finance", "repository.ts");
+    for (const loader of ["loadFinanceIndex", "loadSettings", "loadClients", "hasDemoData", "loadLoans"]) {
+      const body = bodyOf(repository, `export const ${loader}`);
+      expect(body, `${loader} missing`).not.toBeNull();
+      expect(body, `${loader} is unguarded`).toContain("await requirePageUser()");
+    }
+    expect(bodyOf(repository, "export const loadTeam")).toContain(
+      'await requirePermission("users:manage")',
     );
-    expect(targets).toEqual(["/overview", "/login"]);
-    for (const target of targets) expect(target.startsWith("/")).toBe(true);
-  });
-});
 
-describe("production environment guard", () => {
-  it("refuses to boot with a localhost AUTH_URL in production", () => {
-    const source = readFileSync(path.join(process.cwd(), "src", "lib", "auth.ts"), "utf8");
-    expect(source).toContain('process.env.NODE_ENV === "production"');
-    expect(source).toContain("NEXTAUTH_URL");
-    expect(source).toMatch(/localhost\|127\\\.0\\\.0\\\.1/);
+    const viewData = read("src", "lib", "finance", "view-data.ts");
+    expect(viewData).toContain("await requirePageUser()");
+  });
+
+  it("only lets an approved account through either guard", () => {
+    const auth = read("src", "lib", "auth.ts");
+    for (const guard of ["export async function requireUser", "export async function requirePageUser"]) {
+      expect(bodyOf(auth, guard), guard).toContain('account.state !== "approved"');
+    }
+  });
+
+  it("refuses the export API to anyone not approved", () => {
+    for (const route of [
+      ["src", "app", "api", "export", "[dataset]", "route.ts"],
+      ["src", "app", "api", "template", "expenses", "route.ts"],
+    ]) {
+      expect(read(...route)).toContain("await getCurrentUser()");
+    }
   });
 });

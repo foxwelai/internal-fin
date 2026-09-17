@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { can, PERMISSIONS, permissionsFor, ROLE_ORDER } from "./permissions";
 
 describe("permissions", () => {
-  it("gives an owner everything", () => {
-    for (const permission of PERMISSIONS) expect(can("OWNER", permission)).toBe(true);
+  it("gives a super admin everything", () => {
+    for (const permission of PERMISSIONS) expect(can("SUPER_ADMIN", permission)).toBe(true);
   });
 
   it("lets an admin run the books but not the people", () => {
@@ -32,6 +32,6 @@ describe("permissions", () => {
 
   it("only managing users can manage users", () => {
     const allowed = ROLE_ORDER.filter((role) => can(role, "users:manage"));
-    expect(allowed).toEqual(["OWNER"]);
+    expect(allowed).toEqual(["SUPER_ADMIN"]);
   });
 });

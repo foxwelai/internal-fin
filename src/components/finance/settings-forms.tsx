@@ -4,7 +4,7 @@ import * as React from "react";
 import { toast } from "sonner";
 import { Database, Loader2, MoreHorizontal, Pencil, Trash2, TriangleAlert } from "lucide-react";
 
-import { saveSettings, changePassword, deleteCashMovement } from "@/app/actions/settings";
+import { saveSettings, deleteCashMovement } from "@/app/actions/settings";
 import { loadDemoData, removeDemoData } from "@/app/actions/demo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -72,41 +72,6 @@ export function CompanySettingsForm({
       </div>
 
       <SubmitButton pending={pending}>Save settings</SubmitButton>
-    </form>
-  );
-}
-
-export function PasswordForm() {
-  const { state, formAction, pending } = useActionForm(changePassword);
-  const formRef = React.useRef<HTMLFormElement>(null);
-
-  React.useEffect(() => {
-    if (state.status === "success") formRef.current?.reset();
-  }, [state]);
-
-  return (
-    <form ref={formRef} action={formAction} className="space-y-4 sm:max-w-sm">
-      <FormAlert state={state} />
-
-      <Field name="currentPassword" label="Current password" required errors={state.fieldErrors}>
-        {(props) => <Input {...props} type="password" autoComplete="current-password" required />}
-      </Field>
-      <Field
-        name="newPassword"
-        label="New password"
-        required
-        errors={state.fieldErrors}
-        hint="At least 12 characters."
-      >
-        {(props) => <Input {...props} type="password" autoComplete="new-password" required />}
-      </Field>
-      <Field name="confirmPassword" label="Confirm new password" required errors={state.fieldErrors}>
-        {(props) => <Input {...props} type="password" autoComplete="new-password" required />}
-      </Field>
-
-      <SubmitButton pending={pending} variant="secondary">
-        Change password
-      </SubmitButton>
     </form>
   );
 }

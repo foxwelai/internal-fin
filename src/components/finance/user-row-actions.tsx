@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { KeyRound, MoreHorizontal, Pencil, Trash2, UserCheck, UserX } from "lucide-react";
+import { MoreHorizontal, Pencil, Trash2, UserCheck, UserX } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ResetPasswordDialog, UserDialog, type UserInitial } from "@/components/dialogs/user-dialog";
+import { UserDialog, type UserInitial } from "@/components/dialogs/user-dialog";
 import { ConfirmAction } from "@/components/finance/confirm-action";
 import { deleteUser, setUserActive } from "@/app/actions/users";
 import { ROLE_LABELS } from "@/lib/permissions";
@@ -20,16 +20,15 @@ export function UserRowActions({
   user,
   isActive,
   isSelf,
-  isLastActiveOwner,
+  isLastSuperAdmin,
 }: {
   user: UserInitial;
   isActive: boolean;
   isSelf: boolean;
-  isLastActiveOwner: boolean;
+  isLastSuperAdmin: boolean;
 }) {
   const [confirm, setConfirm] = React.useState<null | "active" | "delete">(null);
   const editTrigger = React.useRef<HTMLButtonElement>(null);
-  const resetTrigger = React.useRef<HTMLButtonElement>(null);
 
   return (
     <>
@@ -44,13 +43,9 @@ export function UserRowActions({
             <Pencil />
             Edit name & role
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setTimeout(() => resetTrigger.current?.click(), 0)}>
-            <KeyRound />
-            Reset password
-          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            disabled={isSelf || (isActive && isLastActiveOwner)}
+            disabled={isSelf || (isActive && isLastSuperAdmin)}
             onSelect={() => setTimeout(() => setConfirm("active"), 0)}
           >
             {isActive ? <UserX /> : <UserCheck />}
@@ -58,7 +53,7 @@ export function UserRowActions({
           </DropdownMenuItem>
           <DropdownMenuItem
             variant="destructive"
-            disabled={isSelf || isLastActiveOwner}
+            disabled={isSelf || isLastSuperAdmin}
             onSelect={() => setTimeout(() => setConfirm("delete"), 0)}
           >
             <Trash2 />
@@ -71,10 +66,6 @@ export function UserRowActions({
         <button type="button" ref={editTrigger} className="sr-only" aria-hidden tabIndex={-1} />
       </UserDialog>
 
-      <ResetPasswordDialog userId={user.id} userName={user.name}>
-        <button type="button" ref={resetTrigger} className="sr-only" aria-hidden tabIndex={-1} />
-      </ResetPasswordDialog>
-
       <ConfirmAction
         open={confirm === "active"}
         onOpenChange={(next) => setConfirm(next ? "active" : null)}
@@ -83,7 +74,7 @@ export function UserRowActions({
         title={isActive ? `Deactivate ${user.name}?` : `Reactivate ${user.name}?`}
         description={
           isActive
-            ? "They lose access on their next request, even if they are signed in right now. The account and everything they recorded are kept, so you can turn it back on at any time."
+            ? "They lose access on their next request, even if they are signed in right now. Their Clerk sign-in still works, but it shows them no data. You can turn access back on at any time."
             : `They will be able to sign in again as ${ROLE_LABELS[user.role]}.`
         }
         confirmLabel={isActive ? "Deactivate" : "Reactivate"}
@@ -95,7 +86,7 @@ export function UserRowActions({
         action={deleteUser}
         hidden={{ id: user.id }}
         title={`Delete ${user.name}'s account?`}
-        description="This removes the account permanently and cannot be undone. If you only want to revoke access, deactivate instead — that keeps the record of who added what."
+        description="This removes their access record. Their Clerk sign-in is untouched, so if they sign in again they reappear as a pending request. To simply block them, deactivate instead."
         confirmLabel="Delete permanently"
       />
     </>

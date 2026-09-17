@@ -19,32 +19,22 @@ Requires Node 20+ (built and tested on Node 24).
 
 ```bash
 npm install
-cp .env.example .env          # set DATABASE_URL, AUTH_SECRET, OWNER_PASSWORD
+cp .env.example .env          # set DATABASE_URL, the two Clerk keys, SUPER_ADMIN_EMAIL
 npm run db:deploy             # create the schema
-npm run db:seed               # bootstrap the first owner account
+npm run db:seed               # approve SUPER_ADMIN_EMAIL as the first super admin
 npm run dev
 ```
 
-Then sign in at <http://localhost:3000/login> with the `OWNER_EMAIL` and
-`OWNER_PASSWORD` from your `.env`. That account is a **bootstrap only** —
-everyone else is added from **Settings → Team**, and re-running the seed will
-never touch an account that already exists.
+Then open <http://localhost:3000/sign-in> and sign in (or sign up) with
+`SUPER_ADMIN_EMAIL`. Once Clerk has verified that address you are in as super
+admin. Everyone after that signs up, waits on an approval screen, and is
+approved with a role from **Settings → Team**.
 
 To look around before entering real numbers:
 
 ```bash
 npm run db:seed:demo          # labelled fictional dataset — removable in Settings
 ```
-
-### Generating the secrets
-
-```bash
-openssl rand -base64 32
-```
-
-Put the result in `AUTH_SECRET`. Set `OWNER_PASSWORD` to something at least 12
-characters long — the seed refuses to create an account without it, and there is
-no default password anywhere in the codebase.
 
 ---
 
@@ -106,8 +96,6 @@ Postgres, Docker or Homebrew. Development convenience only — point
 | `npm run db:seed:demo` | The above plus the demo dataset |
 | `npm run db:studio` | Prisma Studio |
 | `npm run verify:data` | Print the month summary and check every project reconciles |
-| `npm run verify:auth` | Confirm the owner account's password hash accepts the right password and rejects the wrong one |
-| `npm run dev:session` | Mint a session cookie for an account, to exercise the UI without a password (development only) |
 
 ---
 
@@ -182,7 +170,8 @@ src/
     dates.ts              Calendar dates and months, anchored to Asia/Kolkata
     csv.ts                RFC 4180 reader/writer
     db.ts                 Prisma client via the pg driver adapter
-    auth.ts               Auth.js v5 + requireUser()
+    auth.ts               Clerk session -> approved account; requireUser()
+    access.ts             Pure rules: approval states and account linking
     finance/
       types.ts            Domain types, independent of Prisma
       engine.ts           THE financial engine — every figure in the app
@@ -210,51 +199,41 @@ across two screens. `repository.ts` loads one snapshot per request and
 
 ## People and access
 
-Nothing about who may do what lives in code or in an environment variable.
-Accounts, their roles and whether they are active are rows in the `users` table,
-managed from **Settings → Team** by anyone with the Owner role.
+**Clerk** handles sign-in, sign-up, passwords, sessions and two-step
+verification. **The database** decides what anyone may see. A Clerk account on
+its own grants nothing.
 
 | Role | Can |
 | --- | --- |
-| **Owner** | Everything, including adding people, changing roles and editing company settings |
+| **Super Admin** | Root access: everything, including approving people, changing roles and company settings |
 | **Admin** | Record and edit everything financial. Not people, not settings |
 | **Viewer** | See every figure, change nothing |
 
-The mapping from role to permission is the one deliberate exception: it lives in
-[`src/lib/permissions.ts`](src/lib/permissions.ts), because what a role *means*
-is policy that deserves review and tests, while *who holds it* is data. Change a
-role in the app and it takes effect on that person's very next request — no
-deploy, no sign-out.
+How someone gets in:
 
-**The session token carries an id and nothing that grants anything.** Role and
-active status are read from the database on every request, so:
+1. They sign up with Clerk. A row is recorded as a **pending request** and they
+   see a "waiting for approval" screen. No financial data is loaded.
+2. A super admin opens **Settings → Team → Pending requests** and approves them
+   with a role, or declines.
+3. Or a super admin uses **Give access** to approve an email ahead of time.
 
-- deactivating someone ends their access immediately, even mid-session;
-- deleting an account does the same;
-- a stale cookie for a deleted account lands on the sign-in form rather than
-  bouncing between `/login` and `/overview`.
+An email only ever claims an existing account once **Clerk has verified it** —
+otherwise anyone could sign up with a super admin's address and inherit the role.
 
-Deactivating is preferred over deleting: it revokes access while keeping the
-record of who added what. The last active owner cannot be demoted, deactivated
-or deleted — otherwise nobody could manage people or settings, and the only way
-back would be a database console.
+Access is read from the database on every request, so an approval, a role change
+or a deactivation takes effect on the next click. The last active super admin
+cannot be demoted, deactivated or removed.
 
 ### Security
 
-- Auth.js v5, email + password (bcrypt, cost 12), JWT sessions.
-- No self sign-up. The seed bootstraps one owner when the table is empty and
-  never touches an existing account — in particular it cannot silently reset a
-  password someone has changed in the app.
-- The `(app)` layout redirects unauthenticated visitors, but that is the front
-  door, not the lock: **every server action calls `requireUser()` or
-  `requirePermission(...)` itself**, because server actions are reachable over
-  HTTP whether or not a page rendered them. A test walks the action files and
-  fails if any exported action is missing its guard.
-- Hiding a button is presentation only. Every check is repeated on the server
-  against the role read fresh from the database.
-- All mutations validate with Zod before touching the database.
-- Receipt allocation, schedule edits and expense payments run inside database
-  transactions, so a partial write cannot leave allocations that do not add up.
+- The check lives **where data is read** — every loader, server action and API
+  route — not only in the layout. Next.js renders route segments independently,
+  so a layout alone cannot stop a page from running. Tests fail if a loader or
+  action loses its guard.
+- `src/proxy.ts` only attaches Clerk's session. It makes no path-based access
+  decisions: Clerk has deprecated those, and Next.js says proxy is not an
+  authorization layer.
+- All mutations validate with Zod; money-moving writes run in transactions.
 
 ### Guard rails
 
@@ -314,59 +293,25 @@ records and leaves anything real untouched.
 
 ## Deploying to Vercel
 
-The build fails loudly if `DATABASE_URL` is missing, rather than shipping an app
-that breaks on its first request. So set the variables **before** the first
-deploy, under **Project Settings → Environment Variables**, ticking Production,
-Preview and Development:
+Set these under **Project Settings → Environment Variables** before deploying.
+Without the Clerk keys the build still succeeds, but every page fails at runtime.
 
-| Variable | Required | Value |
-| --- | --- | --- |
-| `DATABASE_URL` | yes | Your **pooled** connection string. On Neon that is the host containing `-pooler`. Serverless functions open a pool each, so the pooler is what keeps you inside the connection limit. |
-| `AUTH_SECRET` | yes | `openssl rand -base64 32`. Use a different value from your local one. |
-| `DIRECT_URL` | no | Only if you run `prisma migrate deploy` from CI. Not used at runtime. |
-| `AUTH_URL` | no | Leave unset, and the app infers the URL from the request — which is what makes preview deployments work too. If you do set it, use the site's own **https** URL; Auth.js then names the session cookie `__Secure-authjs.session-token` and marks it Secure, which is correct on HTTPS. |
-| `OWNER_EMAIL` / `OWNER_PASSWORD` | no | Only read by the seed, which you run locally. Keeping them off the host keeps that password out of your deployment settings. |
+| Variable | Value |
+| --- | --- |
+| `DATABASE_URL` | Your **pooled** connection string (the Neon host containing `-pooler`) |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Clerk dashboard → API keys |
+| `CLERK_SECRET_KEY` | Clerk dashboard → API keys. Server-only; never sent to the browser |
 
-Migrations are **not** run during the build, deliberately: a preview deployment
-would otherwise migrate your production database. Apply them yourself when the
-schema changes:
+`AUTH_SECRET` and `AUTH_URL` belonged to the previous login system and can be
+deleted. Clerk's development keys work on a `vercel.app` domain but show a
+development banner; production keys need a domain you own.
+
+Migrations are **not** run during the build — a preview deployment would
+otherwise migrate your production database. Apply them yourself:
 
 ```bash
 npm run db:deploy     # uses DIRECT_URL when set
 ```
-
-Then bootstrap the first account once, against the same database:
-
-```bash
-npm run db:seed
-```
-
-### If signing in or out sends you to localhost
-
-`AUTH_URL` (or `NEXTAUTH_URL`) is set in the deployed environment — almost
-always a value copied over from a local `.env`. Auth.js uses it as the origin
-for every redirect it builds, so people on the live site get sent to
-`http://localhost:3000`; pressing Back appears to fix it because the session
-cookie was set correctly on the real host all along.
-
-It also has a quieter consequence: Auth.js decides `useSecureCookies` from that
-URL's protocol, so an `http://localhost` value strips the **Secure** flag off
-the session cookie on your HTTPS site.
-
-**Remove `AUTH_URL` and `NEXTAUTH_URL` from Project Settings → Environment
-Variables, then redeploy** — or set `AUTH_URL` to the site's own https URL.
-Leaving it unset is simpler: the app infers its URL from the request, which is
-what makes the production domain and every preview deployment work.
-
-Whatever you do, never put an https `AUTH_URL` in a **local** `.env`. Auth.js
-would then name the session cookie `__Secure-authjs.session-token`, and no
-browser will store or send a `__Secure-` cookie over `http://localhost` — local
-sign-in would look like it worked and then silently leave you signed out.
-
-The app defends itself on both counts: sign-in and sign-out navigate with Next's
-own `redirect()` on a relative path, so they cannot be aimed at another origin;
-and a production build refuses to start if `AUTH_URL` points at localhost rather
-than silently issuing a downgraded cookie.
 
 ### If you see the Next.js starter page after deploying
 
@@ -388,10 +333,6 @@ A count of `0` there means the application is not in that commit.
 
 - One organisation. No multi-tenancy and no client portal — clients are internal
   records with no login.
-- Password reset is done by an owner from the Team page. There is no
-  self-service "forgot password" email flow.
-- Resetting someone's password does not end their existing sessions; deactivate
-  and reactivate the account to cut those off at once.
 - Cash basis only. No accruals, GST/TDS handling, invoice numbering or PDF
   invoicing.
 - The repository loads the full financial dataset per request. That is a handful
@@ -406,4 +347,4 @@ A count of `0` there means the application is not in that commit.
 - Commission payable is a standing liability rather than part of a month's
   forecast, because a commission has no due date of its own.
 - Unsaved form input is kept in the browser's own storage, so it is per-device
-  and per-browser, and passwords are deliberately never kept.
+  and per-browser.

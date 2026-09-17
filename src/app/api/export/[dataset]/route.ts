@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { auth } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/auth";
 import { csvAttachmentHeaders, toCsv, withBom } from "@/lib/csv";
 import { formatForCsv } from "@/lib/money";
 import {
@@ -33,8 +33,9 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ dataset: string }> },
 ) {
-  const session = await auth();
-  if (!session?.user) {
+  // An approved account, read from the database — a Clerk session alone is
+  // not enough, or a pending sign-up could download the books.
+  if (!(await getCurrentUser())) {
     return NextResponse.json({ error: "Not authorised" }, { status: 401 });
   }
 

@@ -1,16 +1,16 @@
 /**
  * Bootstraps the installation, and optionally loads the demo dataset.
  *
- *   npm run db:seed        — first owner account + app settings
+ *   npm run db:seed        — first super admin + app settings
  *   npm run db:seed:demo   — the above, plus the labelled demo dataset
  *
- * The owner account is a *bootstrap*, not a source of truth: once any account
- * exists, people are managed from Settings → Team and this script will not
- * touch them. In particular it never overwrites a password, so re-running it
- * after someone has changed theirs cannot silently reset it.
+ * Sign-in is Clerk's job, so no password is created here. This only records
+ * that SUPER_ADMIN_EMAIL is approved as a super admin; the person gets in the
+ * first time they sign in to Clerk with that email, once Clerk has verified it.
+ * It does nothing once any super admin exists — people are managed from
+ * Settings -> Team after that.
  */
 import "dotenv/config";
-import bcrypt from "bcryptjs";
 import { PrismaPg } from "@prisma/adapter-pg";
 
 import { PrismaClient } from "../src/generated/prisma";
@@ -24,54 +24,37 @@ if (!connectionString) {
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
 
-async function bootstrapOwner() {
-  const existing = await prisma.user.count();
-
-  if (existing > 0) {
-    const owners = await prisma.user.count({ where: { role: "OWNER", isActive: true } });
-    console.log(
-      `Accounts already exist (${existing}, of which ${owners} active owner${owners === 1 ? "" : "s"}) — left untouched.`,
-    );
-    if (owners === 0) {
-      console.warn(
-        "\n  WARNING: no active owner. Nobody can manage people or settings.\n" +
-          "  Promote someone directly in the database, or delete the users table\n" +
-          "  and re-run this seed to bootstrap again.\n",
-      );
-    }
+async function bootstrapSuperAdmin() {
+  const superAdmins = await prisma.user.count({
+    where: { role: "SUPER_ADMIN", isActive: true, approvedAt: { not: null } },
+  });
+  if (superAdmins > 0) {
+    console.log(`A super admin already exists (${superAdmins}) — accounts left untouched.`);
     return;
   }
 
-  const email = (process.env.OWNER_EMAIL ?? "").trim().toLowerCase();
-  const name = process.env.OWNER_NAME?.trim() || "Owner";
-  const password = process.env.OWNER_PASSWORD;
-
+  const email = (process.env.SUPER_ADMIN_EMAIL ?? "").trim().toLowerCase();
   if (!email) {
-    console.error("OWNER_EMAIL is not set — needed to create the first account.");
-    process.exit(1);
-  }
-  if (!password || password.length < 12) {
-    console.error(
-      "OWNER_PASSWORD must be set and at least 12 characters — there is no default password.",
-    );
+    console.error("SUPER_ADMIN_EMAIL is not set — needed to approve the first super admin.");
     process.exit(1);
   }
 
-  const user = await prisma.user.create({
-    data: {
+  const user = await prisma.user.upsert({
+    where: { email },
+    create: {
       email,
-      name,
-      role: "OWNER",
-      passwordHash: await bcrypt.hash(password, 12),
+      name: process.env.SUPER_ADMIN_NAME?.trim() || email.split("@")[0],
+      role: "SUPER_ADMIN",
+      approvedAt: new Date(),
     },
+    update: { role: "SUPER_ADMIN", approvedAt: new Date(), isActive: true },
   });
 
-  console.log(`Bootstrapped the first owner: ${user.email}`);
-  console.log("Everyone else is added from Settings → Team inside the app.");
+  console.log(`Approved ${user.email} as super admin. Sign in to Clerk with that email to get in.`);
 }
 
 async function main() {
-  await bootstrapOwner();
+  await bootstrapSuperAdmin();
 
   await prisma.appSettings.upsert({
     where: { id: "singleton" },

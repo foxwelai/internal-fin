@@ -20,34 +20,44 @@ datasource db {
 /// Access level. Which permissions each role carries is decided by
 /// src/lib/permissions.ts; who holds which role lives here, in the database.
 enum UserRole {
-  /// Full access, including managing people and company settings.
-  OWNER
-  /// Everything financial. Cannot manage people or change settings.
+  /// Root access: everything, including approving people and company settings.
+  SUPER_ADMIN
+  /// Everything financial. Cannot manage people or company settings.
   ADMIN
   /// Read-only.
   VIEWER
 }
 
+/// A person known to the app. Sign-in itself is handled by Clerk; this row is
+/// what decides whether that person may see anything, and with which role.
 model User {
   id           String    @id @default(cuid())
+  /// Clerk's user id, set the first time this person signs in.
+  clerkUserId  String?   @unique
   email        String    @unique
   name         String
-  passwordHash String
+  /// Left over from before Clerk. Never read; kept only so no history is lost.
+  passwordHash String?
   role         UserRole  @default(VIEWER)
-  /// Revoking access without deleting the record — and with it the audit trail
-  /// of who did what. Checked on every request, not just at sign-in.
+  /// Null until a super admin approves this person. Someone who signs up is
+  /// recorded as a request and sees no data until then.
+  approvedAt   DateTime?
+  approvedById String?
+  /// Revoking access without deleting the record. Checked on every request.
   isActive     Boolean   @default(true)
-  /// Set when an owner adds someone from the Team page. Null for the account
-  /// created by the initial bootstrap.
+  /// Set when a super admin adds someone ahead of their first sign-in.
   createdById  String?
   lastLoginAt  DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  createdBy    User?  @relation("UserCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  createdUsers User[] @relation("UserCreatedBy")
+  createdBy     User?  @relation("UserCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdUsers  User[] @relation("UserCreatedBy")
+  approvedBy    User?  @relation("UserApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedUsers User[] @relation("UserApprovedBy")
 
   @@index([isActive])
+  @@index([approvedAt])
   @@map("users")
 }
 
