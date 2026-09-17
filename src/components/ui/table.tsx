@@ -2,9 +2,14 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-/** Wraps the table so wide financial columns scroll inside the card, never the page. */
+/**
+ * Wraps the table so wide financial columns scroll inside the card, never the page.
+ * `relative` matters: rows hold visually-hidden (absolutely positioned) dialog
+ * triggers, and without a positioned ancestor here they escape the scroll box
+ * and widen the whole page on tablets.
+ */
 function TableWrap({ className, ...props }: React.ComponentProps<"div">) {
-  return <div className={cn("w-full overflow-x-auto", className)} {...props} />;
+  return <div className={cn("relative w-full overflow-x-auto", className)} {...props} />;
 }
 
 function Table({ className, ...props }: React.ComponentProps<"table">) {

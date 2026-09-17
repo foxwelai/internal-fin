@@ -4,28 +4,44 @@ import * as React from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { MoreHorizontal } from "lucide-react";
+import { MoreHorizontal, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { NAV_ITEMS, SECONDARY_NAV_ITEMS, isNavItemActive } from "@/lib/nav";
+import { useSidebar } from "@/components/shell/sidebar-state";
 
-export function Sidebar({ footer }: { footer?: React.ReactNode }) {
+/**
+ * Desktop and tablet navigation. Full width shows labels; the rail shows icons
+ * only, with each label kept for screen readers and as a hover tooltip.
+ */
+export function Sidebar() {
   const pathname = usePathname();
+  const { classes, toggle, mode } = useSidebar();
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-border bg-surface lg:flex">
-      <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-border px-4">
-        <Link href="/overview" className="flex items-center gap-2.5 rounded-md py-1 pr-2">
+    <aside
+      className={cn(
+        "fixed inset-y-0 left-0 z-30 hidden flex-col overflow-hidden border-r border-border bg-surface md:flex",
+        "transition-[width] duration-200 ease-out",
+        classes.width,
+      )}
+    >
+      <div className={cn("flex h-14 shrink-0 items-center border-b border-border px-3", classes.center)}>
+        <Link
+          href="/overview"
+          className="flex min-w-0 items-center gap-2.5 rounded-md p-1"
+          aria-label="Foxwel Finance — Overview"
+        >
           <Image
             src="/logo-mark.png"
             alt=""
             width={26}
             height={32}
-            className="h-7 w-auto"
+            className="h-7 w-auto shrink-0"
             priority
           />
-          <span className="flex flex-col leading-none">
-            <span className="text-[13px] font-semibold tracking-tight">Foxwel Finance</span>
+          <span className={cn("flex min-w-0 flex-col leading-none", classes.label)}>
+            <span className="truncate text-[13px] font-semibold tracking-tight">Foxwel Finance</span>
             <span className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-faint-foreground">
               foxwel.ai
             </span>
@@ -33,7 +49,7 @@ export function Sidebar({ footer }: { footer?: React.ReactNode }) {
         </Link>
       </div>
 
-      <nav className="flex-1 overflow-y-auto p-3" aria-label="Main">
+      <nav className="flex-1 overflow-y-auto overflow-x-hidden p-3" aria-label="Main">
         <ul className="space-y-0.5">
           {NAV_ITEMS.map((item) => {
             const active = isNavItemActive(pathname, item.href);
@@ -42,8 +58,10 @@ export function Sidebar({ footer }: { footer?: React.ReactNode }) {
                 <Link
                   href={item.href}
                   aria-current={active ? "page" : undefined}
+                  title={item.label}
                   className={cn(
-                    "group relative flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium transition-colors",
+                    "group relative flex h-9 items-center gap-2.5 rounded-md px-2.5 text-[13px] font-medium transition-colors",
+                    classes.center,
                     active
                       ? "bg-surface-3 text-foreground"
                       : "text-muted-foreground hover:bg-surface-2 hover:text-foreground",
@@ -61,7 +79,7 @@ export function Sidebar({ footer }: { footer?: React.ReactNode }) {
                       active ? "text-brand" : "text-faint-foreground group-hover:text-muted-foreground",
                     )}
                   />
-                  <span className="truncate">{item.label}</span>
+                  <span className={cn("truncate", classes.label)}>{item.label}</span>
                 </Link>
               </li>
             );
@@ -69,7 +87,25 @@ export function Sidebar({ footer }: { footer?: React.ReactNode }) {
         </ul>
       </nav>
 
-      {footer ? <div className="shrink-0 border-t border-border p-3">{footer}</div> : null}
+      <div className="shrink-0 border-t border-border p-3">
+        <button
+          type="button"
+          onClick={toggle}
+          aria-label="Toggle sidebar"
+          title="Toggle sidebar (⌘B)"
+          className={cn(
+            "flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-surface-2 hover:text-foreground",
+            classes.center,
+          )}
+        >
+          {/* Which icon depends on what is showing, which in auto mode is a matter of screen width. */}
+          <PanelLeftClose className={cn("size-4 shrink-0", classes.wide)} />
+          <PanelLeftOpen className={cn("size-4 shrink-0", classes.narrow)} />
+          <span className={cn("truncate", classes.label)}>
+            {mode === "collapsed" ? "Expand" : "Collapse"}
+          </span>
+        </button>
+      </div>
     </aside>
   );
 }
@@ -103,7 +139,7 @@ export function MobileNav() {
     <>
       {moreOpen ? (
         <div
-          className="fixed inset-0 z-30 bg-black/60 backdrop-blur-[2px] lg:hidden"
+          className="fixed inset-0 z-30 bg-black/60 backdrop-blur-[2px] md:hidden"
           onClick={() => setMoreOpen(false)}
           aria-hidden
         />
@@ -111,7 +147,7 @@ export function MobileNav() {
 
       <nav
         aria-label="Main"
-        className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface/95 backdrop-blur-md lg:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface/95 backdrop-blur-md md:hidden"
       >
         {moreOpen ? (
           <ul className="border-b border-border p-2">

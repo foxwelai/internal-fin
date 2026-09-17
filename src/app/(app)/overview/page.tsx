@@ -356,8 +356,8 @@ export default async function OverviewPage({
 
       {/* ----------------------------- Charts ----------------------------- */}
 
-      <section className="grid gap-3 lg:grid-cols-5">
-        <Card className="lg:col-span-3">
+      <section className="grid gap-3 xl:grid-cols-5">
+        <Card className="xl:col-span-3">
           <CardHeader>
             <CardTitle>Collections vs expenses</CardTitle>
             <p className="text-[13px] text-muted-foreground">
@@ -369,7 +369,7 @@ export default async function OverviewPage({
           </CardContent>
         </Card>
 
-        <Card className="lg:col-span-2">
+        <Card className="xl:col-span-2">
           <CardHeader>
             <CardTitle>Expense categories</CardTitle>
             <p className="text-[13px] text-muted-foreground">
@@ -392,8 +392,8 @@ export default async function OverviewPage({
 
       {/* ----------------------- Receivables & pipeline -------------------- */}
 
-      <section className="grid gap-3 lg:grid-cols-5">
-        <Card className="lg:col-span-2">
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <Card className="xl:col-span-2">
           <CardHeader className="flex-row items-center justify-between">
             <CardTitle>Upcoming payments</CardTitle>
             <Button asChild variant="ghost" size="sm" className="text-[12px]">
@@ -414,7 +414,7 @@ export default async function OverviewPage({
           </CardContent>
         </Card>
 
-        <Card className="lg:col-span-2">
+        <Card className="xl:col-span-2">
           <CardHeader className="flex-row items-center justify-between">
             <CardTitle className="flex items-center gap-2">
               Overdue
@@ -451,7 +451,7 @@ export default async function OverviewPage({
           </CardContent>
         </Card>
 
-        <Card className="lg:col-span-1">
+        <Card className="md:col-span-2 xl:col-span-1">
           <CardHeader>
             <CardTitle>Project pipeline</CardTitle>
             <p className="text-[13px] text-muted-foreground">Contract value by status.</p>

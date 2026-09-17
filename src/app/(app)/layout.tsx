@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { getAccount } from "@/lib/auth";
@@ -9,6 +10,8 @@ import { currentMonthKey, todayInIST, toDateInputValue } from "@/lib/dates";
 import { loadPickerOptions } from "@/lib/finance/view-data";
 import { MobileNav, Sidebar } from "@/components/shell/sidebar";
 import { Topbar } from "@/components/shell/topbar";
+import { SidebarOffset, SidebarProvider } from "@/components/shell/sidebar-state";
+import { parseSidebarMode, SIDEBAR_COOKIE } from "@/lib/sidebar";
 
 /**
  * The authenticated shell.
@@ -32,7 +35,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   const viewer = account.user;
-  const { clients, projects } = await loadPickerOptions();
+  const [{ clients, projects }, cookieStore] = await Promise.all([loadPickerOptions(), cookies()]);
+  const sidebarMode = parseSidebarMode(cookieStore.get(SIDEBAR_COOKIE)?.value);
   const currentMonth = currentMonthKey();
 
   return (
@@ -45,22 +49,24 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         permissions: permissionsFor(viewer.role),
       }}
     >
+      <SidebarProvider initialMode={sidebarMode}>
       <div className="min-h-dvh">
         <Sidebar />
-        <div className="lg:pl-60">
+        <SidebarOffset>
           <Topbar
             currentMonth={currentMonth}
             clients={clients}
             projects={projects}
             today={toDateInputValue(todayInIST())}
           />
-          <main className="mx-auto w-full max-w-[1400px] px-4 pb-24 pt-5 sm:px-6 sm:pb-10 lg:pb-12">
+          <main className="mx-auto w-full max-w-[1400px] px-4 pb-24 pt-5 sm:px-6 md:pb-10 lg:pb-12">
             <ReadOnlyBanner />
             {children}
           </main>
-        </div>
+        </SidebarOffset>
         <MobileNav />
       </div>
+      </SidebarProvider>
     </PermissionProvider>
   );
 }

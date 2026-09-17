@@ -21,11 +21,11 @@ export default function Loading() {
         ))}
       </div>
       <MetricGridSkeleton count={8} />
-      <div className="grid gap-3 lg:grid-cols-5">
-        <div className="lg:col-span-3">
+      <div className="grid gap-3 xl:grid-cols-5">
+        <div className="xl:col-span-3">
           <ChartSkeleton />
         </div>
-        <div className="lg:col-span-2">
+        <div className="xl:col-span-2">
           <ChartSkeleton height={188} />
         </div>
       </div>

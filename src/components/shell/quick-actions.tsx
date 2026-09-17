@@ -53,7 +53,8 @@ export function QuickActions({
 
   return (
     <>
-      {/* Desktop */}
+      {/* Tablet and up — the secondary actions shrink to icons until there is
+          room for their labels beside an open sidebar. */}
       <div className="hidden items-center gap-2 md:flex">
         <ReceiptDialog projects={projects} today={today}>
           <Button size="sm" ref={receiptTrigger}>
@@ -62,15 +63,15 @@ export function QuickActions({
           </Button>
         </ReceiptDialog>
         <ProjectDialog clients={clients}>
-          <Button size="sm" variant="secondary" ref={projectTrigger}>
+          <Button size="sm" variant="secondary" ref={projectTrigger} title="New project">
             <FolderPlus />
-            New project
+            <span className="sr-only xl:not-sr-only">New project</span>
           </Button>
         </ProjectDialog>
         <ExpenseDialog month={month}>
-          <Button size="sm" variant="secondary" ref={expenseTrigger}>
+          <Button size="sm" variant="secondary" ref={expenseTrigger} title="Add expense">
             <Receipt />
-            Add expense
+            <span className="sr-only xl:not-sr-only">Add expense</span>
           </Button>
         </ExpenseDialog>
       </div>
