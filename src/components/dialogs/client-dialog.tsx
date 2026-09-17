@@ -26,8 +26,10 @@ export type ClientInitial = {
   id: string;
   name: string;
   companyName: string | null;
+  clientName: string | null;
   website: string | null;
   contactPerson: string | null;
+  contactPhone: string | null;
   email: string | null;
   phone: string | null;
   notes: string | null;
@@ -64,7 +66,7 @@ export function ClientDialog({
             <DraftNotice restored={restored} onDiscard={discard} />
             <FormAlert state={state} />
 
-            <Field name="name" label="Client or company name" required errors={state.fieldErrors}>
+            <Field name="name" label="Company name" required errors={state.fieldErrors}>
               {(props) => (
                 <Input
                   {...props}
@@ -78,16 +80,83 @@ export function ClientDialog({
 
             <div className="grid gap-4 sm:grid-cols-2">
               <Field
-                name="companyName"
-                label="Company name"
+                name="clientName"
+                label="Client name"
+                required
                 errors={state.fieldErrors}
-                hint="The registered entity, if it differs from the name above."
+                hint="The owner or decision maker."
               >
                 {(props) => (
                   <Input
                     {...props}
-                    defaultValue={initial?.companyName ?? ""}
-                    placeholder="Northwind Retail Pvt Ltd"
+                    defaultValue={initial?.clientName ?? ""}
+                    placeholder="Rahul Shenoy"
+                    autoComplete="off"
+                    required
+                  />
+                )}
+              </Field>
+              <Field name="phone" label="Client phone" required errors={state.fieldErrors}>
+                {(props) => (
+                  <Input
+                    {...props}
+                    type="tel"
+                    inputMode="tel"
+                    defaultValue={initial?.phone ?? ""}
+                    placeholder="+91 98200 41122"
+                    required
+                  />
+                )}
+              </Field>
+            </div>
+
+            <fieldset className="space-y-3 rounded-lg border border-border bg-surface-2/60 p-3">
+              <legend className="px-1 text-[12px] font-medium text-muted-foreground">
+                Point of contact
+              </legend>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field
+                  name="contactPerson"
+                  label="Contact person"
+                  required
+                  errors={state.fieldErrors}
+                >
+                  {(props) => (
+                    <Input
+                      {...props}
+                      defaultValue={initial?.contactPerson ?? ""}
+                      placeholder="Ananya Rao"
+                      autoComplete="off"
+                      required
+                    />
+                  )}
+                </Field>
+                <Field name="contactPhone" label="Contact phone" required errors={state.fieldErrors}>
+                  {(props) => (
+                    <Input
+                      {...props}
+                      type="tel"
+                      inputMode="tel"
+                      defaultValue={initial?.contactPhone ?? ""}
+                      placeholder="+91 99000 12345"
+                      required
+                    />
+                  )}
+                </Field>
+              </div>
+              <p className="text-[12px] leading-relaxed text-faint-foreground">
+                Who the team calls day to day. Same as the client? Enter their details again.
+              </p>
+            </fieldset>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field name="email" label="Email" errors={state.fieldErrors}>
+                {(props) => (
+                  <Input
+                    {...props}
+                    type="email"
+                    defaultValue={initial?.email ?? ""}
+                    placeholder="ananya@example.com"
                   />
                 )}
               </Field>
@@ -108,29 +177,20 @@ export function ClientDialog({
               </Field>
             </div>
 
-            <Field name="contactPerson" label="Contact person" errors={state.fieldErrors}>
+            <Field
+              name="companyName"
+              label="Registered name"
+              errors={state.fieldErrors}
+              hint="Optional — the legal entity on invoices, if it differs from the company name."
+            >
               {(props) => (
-                <Input {...props} defaultValue={initial?.contactPerson ?? ""} placeholder="Ananya Rao" />
+                <Input
+                  {...props}
+                  defaultValue={initial?.companyName ?? ""}
+                  placeholder="Northwind Retail Pvt Ltd"
+                />
               )}
             </Field>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field name="email" label="Email" errors={state.fieldErrors}>
-                {(props) => (
-                  <Input
-                    {...props}
-                    type="email"
-                    defaultValue={initial?.email ?? ""}
-                    placeholder="ananya@example.com"
-                  />
-                )}
-              </Field>
-              <Field name="phone" label="Phone" errors={state.fieldErrors}>
-                {(props) => (
-                  <Input {...props} defaultValue={initial?.phone ?? ""} placeholder="+91 98200 41122" />
-                )}
-              </Field>
-            </div>
 
             <Field name="notes" label="Notes" errors={state.fieldErrors}>
               {(props) => (

@@ -6,9 +6,12 @@ import {
   COMMISSION_BASES,
   EXPENSE_CATEGORIES,
   PAYMENT_METHODS,
+  PROJECT_PROGRESSES,
   PROJECT_STATUSES,
   RECURRING_INTERVALS,
+  TEAM_MEMBER_KINDS,
 } from "@/lib/finance/types";
+import { LEAD_QUALITIES, LEAD_SOURCES } from "@/lib/finance/leads";
 
 import {
   checkboxField,
@@ -26,18 +29,63 @@ import {
 
 /* -------------------------------- Clients -------------------------------- */
 
+/** A phone number as people type it: "+91 98200 41122", "080-2345 6789". */
+const requiredPhone = (label: string) =>
+  requiredText(label, 40).refine(
+    (value) => (value.match(/\d/g) ?? []).length >= 6 && /^[\d\s+()./-]+$/.test(value),
+    `${label} doesn't look like a phone number`,
+  );
+
 export const clientSchema = z.object({
   id: idField.optional(),
-  name: requiredText("Client name", 120),
+  name: requiredText("Company name", 120),
+  clientName: requiredText("Client name", 120),
+  phone: requiredPhone("Client phone"),
+  contactPerson: requiredText("Contact person", 120),
+  contactPhone: requiredPhone("Contact phone"),
   companyName: optionalText(160),
   website: optionalUrlField("Website"),
-  contactPerson: optionalText(120),
   email: optionalEmail,
-  phone: optionalText(40),
   notes: optionalText(),
 });
 
+/* ---------------------------------- Team --------------------------------- */
+
+export const teamMemberSchema = z.object({
+  id: idField.optional(),
+  kind: z.enum(TEAM_MEMBER_KINDS),
+  name: requiredText("Name", 120),
+  phone: requiredPhone("Phone"),
+  designation: optionalText(80),
+  email: optionalEmail,
+});
+
 /* -------------------------------- Projects ------------------------------- */
+
+const percentCompleteField = z.string().transform((value, ctx): number => {
+  const trimmed = value.trim().replace(/%$/, "");
+  if (trimmed === "") return 0;
+  if (!/^\d{1,3}$/.test(trimmed) || Number(trimmed) > 100) {
+    ctx.addIssue({ code: "custom", message: "Enter a whole number from 0 to 100" });
+    return z.NEVER;
+  }
+  return Number(trimmed);
+});
+
+const optionalIdField = z
+  .string()
+  .trim()
+  .max(64)
+  .transform((value) => (value === "" ? null : value));
+
+/** Where the work stands. Completed always means 100%. */
+export const progressFields = {
+  progress: z.enum(PROJECT_PROGRESSES),
+  progressPercent: percentCompleteField,
+  progressNotes: optionalText(2000),
+};
+
+export const projectProgressSchema = z.object({ id: idField, ...progressFields });
 
 /** Percentages arrive as text like "12.5" and are stored as basis points. */
 const percentField = (label: string) =>
@@ -82,6 +130,9 @@ export const projectSchema = z
     commissionPercent: percentField("Commission rate"),
     commissionAmount: optionalMoneyField("Commission amount"),
     commissionNotes: optionalText(600),
+
+    coordinatorId: optionalIdField,
+    ...progressFields,
   })
   .refine(
     (value) =>
@@ -253,4 +304,80 @@ export const loanPaymentSchema = z.object({
   method: z.enum(PAYMENT_METHODS),
   reference: optionalText(80),
   notes: optionalText(600),
+});
+
+/* --------------------------------- Assets -------------------------------- */
+
+export const assetSchema = z
+  .object({
+    id: idField.optional(),
+    name: requiredText("Asset name", 160),
+    /** An existing category's id, or "new" alongside `newCategory`. */
+    categoryId: z.string().trim().max(64),
+    newCategory: optionalText(60),
+    specification: optionalText(2000),
+    serialNumber: optionalText(120),
+    purchasedOn: optionalDateField("Purchase date"),
+    cost: optionalMoneyField("Cost"),
+    notes: optionalText(),
+  })
+  .refine((value) => (value.categoryId !== "" && value.categoryId !== "new") || value.newCategory !== null, {
+    message: "Choose a category, or name a new one",
+    path: ["categoryId"],
+  });
+
+/* ---------------------------------- Leads -------------------------------- */
+
+/** Leads being worked or dropped. Winning goes through conversion instead. */
+export const EDITABLE_LEAD_STAGES = ["JUST_SPOKE", "IN_PROCESS", "LOST"] as const;
+
+const optionalPhone = (label: string) =>
+  z.string().transform((value, ctx): string | null => {
+    const trimmed = value.trim();
+    if (trimmed === "") return null;
+    const checked = requiredPhone(label).safeParse(trimmed);
+    if (!checked.success) {
+      ctx.addIssue({ code: "custom", message: checked.error.issues[0]?.message ?? `Check the ${label.toLowerCase()}` });
+      return z.NEVER;
+    }
+    return checked.data;
+  });
+
+const optionalMonthField = z.string().transform((value, ctx): Date | null => {
+  const trimmed = value.trim();
+  if (trimmed === "") return null;
+  const match = /^(\d{4})-(\d{2})$/.exec(trimmed);
+  const month = match ? Number(match[2]) : 0;
+  if (!match || month < 1 || month > 12) {
+    ctx.addIssue({ code: "custom", message: "Pick a month, e.g. 2026-10" });
+    return z.NEVER;
+  }
+  return new Date(Date.UTC(Number(match[1]), month - 1, 1));
+});
+
+export const leadSchema = z.object({
+  id: idField.optional(),
+  name: requiredText("Company name", 120),
+  clientName: requiredText("Client name", 120),
+  phone: requiredPhone("Client phone"),
+  contactPerson: optionalText(120),
+  contactPhone: optionalPhone("Contact phone"),
+  email: optionalEmail,
+  website: optionalUrlField("Website"),
+  stage: z.enum(EDITABLE_LEAD_STAGES),
+  quality: z.enum(LEAD_QUALITIES),
+  source: z
+    .union([z.enum(LEAD_SOURCES), z.literal("")])
+    .transform((value) => (value === "" ? null : value)),
+  expectedValue: optionalMoneyField("Expected value"),
+  expectedCloseMonth: optionalMonthField,
+  requirement: optionalText(2000),
+  ownerId: z
+    .string()
+    .trim()
+    .max(64)
+    .transform((value) => (value === "" ? null : value)),
+  nextFollowUpOn: optionalDateField("Next follow-up"),
+  lostReason: optionalText(600),
+  notes: optionalText(),
 });

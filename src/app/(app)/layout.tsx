@@ -12,6 +12,7 @@ import { MobileNav, Sidebar } from "@/components/shell/sidebar";
 import { Topbar } from "@/components/shell/topbar";
 import { SidebarOffset, SidebarProvider } from "@/components/shell/sidebar-state";
 import { parseSidebarMode, SIDEBAR_COOKIE } from "@/lib/sidebar";
+import { TeamOptionsProvider } from "@/components/finance/team-options";
 
 /**
  * The authenticated shell.
@@ -35,7 +36,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   const viewer = account.user;
-  const [{ clients, projects }, cookieStore] = await Promise.all([loadPickerOptions(), cookies()]);
+  const [{ clients, projects, team }, cookieStore] = await Promise.all([loadPickerOptions(), cookies()]);
   const sidebarMode = parseSidebarMode(cookieStore.get(SIDEBAR_COOKIE)?.value);
   const currentMonth = currentMonthKey();
 
@@ -49,6 +50,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         permissions: permissionsFor(viewer.role),
       }}
     >
+      <TeamOptionsProvider team={team}>
       <SidebarProvider initialMode={sidebarMode}>
       <div className="min-h-dvh">
         <Sidebar />
@@ -67,6 +69,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <MobileNav />
       </div>
       </SidebarProvider>
+      </TeamOptionsProvider>
     </PermissionProvider>
   );
 }

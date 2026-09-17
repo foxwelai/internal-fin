@@ -46,7 +46,9 @@ export async function seedDemoData(db: Db) {
   const northwind = await db.client.create({
     data: {
       name: "Northwind Retail Pvt Ltd",
+      clientName: "Karan Malhotra",
       contactPerson: "Ananya Rao",
+      contactPhone: "+91 98200 41122",
       email: "ananya.rao@northwind.example",
       phone: "+91 98200 41122",
       notes: "Demo data. Retail chain, 40 stores. Payments run on a 15-day approval cycle.",
@@ -57,7 +59,9 @@ export async function seedDemoData(db: Db) {
   const kettle = await db.client.create({
     data: {
       name: "Kettle & Co Coffee",
+      clientName: "Rohan Mehta",
       contactPerson: "Rohan Mehta",
+      contactPhone: "+91 99870 33410",
       email: "rohan@kettleandco.example",
       phone: "+91 99870 33410",
       notes: "Demo data. D2C coffee brand. Slow on design sign-offs.",
@@ -68,7 +72,9 @@ export async function seedDemoData(db: Db) {
   const suryan = await db.client.create({
     data: {
       name: "Suryan Logistics",
+      clientName: "Meera Suryanarayan",
       contactPerson: "Vikram Iyer",
+      contactPhone: "+91 90040 77812",
       email: "vikram.iyer@suryanlog.example",
       phone: "+91 90040 77812",
       notes: "Demo data. Largest account. Fleet AI pilot could extend into a retainer.",
@@ -79,7 +85,9 @@ export async function seedDemoData(db: Db) {
   const lumen = await db.client.create({
     data: {
       name: "Lumen Health",
+      clientName: "Dr. Arjun Nair",
       contactPerson: "Dr. Priya Nair",
+      contactPhone: "+91 93450 21188",
       email: "priya.nair@lumenhealth.example",
       phone: "+91 93450 21188",
       notes: "Demo data. Two clinics in Pune. Pays reliably on the due date.",
@@ -90,8 +98,11 @@ export async function seedDemoData(db: Db) {
   const tanvi = await db.client.create({
     data: {
       name: "Tanvi Studios",
+      clientName: "Tanvi Deshpande",
       contactPerson: "Tanvi Deshpande",
+      contactPhone: "+91 97300 55120",
       email: "hello@tanvistudios.example",
+      phone: "+91 97300 55120",
       notes: "Demo data. Small, fast-moving design studio. Referral source.",
       isDemo: true,
     },

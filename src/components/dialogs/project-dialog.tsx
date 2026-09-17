@@ -29,6 +29,8 @@ import { useActionDialog } from "@/components/finance/use-action-dialog";
 import { useFormDraft } from "@/components/finance/use-form-draft";
 import { DraftNotice } from "@/components/finance/draft-notice";
 import type { ClientOption } from "@/components/finance/options";
+import { useTeamOptions } from "@/components/finance/team-options";
+import { ProgressFields } from "@/components/finance/progress-fields";
 import {
   BILLING_TYPE_LABELS,
   COMMISSION_BASIS_LABELS,
@@ -42,6 +44,7 @@ import {
   RECURRING_INTERVALS,
   type BillingType,
   type CommissionBasis,
+  type ProjectProgress,
   type ProjectStatus,
   type RecurringInterval,
 } from "@/lib/finance/types";
@@ -67,6 +70,10 @@ export type ProjectInitial = {
   commissionRateBps: number | null;
   commissionAmountPaise: number | null;
   commissionNotes: string | null;
+  coordinatorId: string | null;
+  progress: ProjectProgress;
+  progressPercent: number;
+  progressNotes: string | null;
 };
 
 const STATUS_HINT: Record<ProjectStatus, string> = {
@@ -98,6 +105,9 @@ export function ProjectDialog({
     initial?.commissionBasis ?? "",
   );
   const editing = Boolean(initial);
+  const team = useTeamOptions();
+  // People who have left stay selectable only on the projects they already run.
+  const coordinators = team.filter((member) => member.active || member.id === initial?.coordinatorId);
 
   const selectable = clients.filter((client) => !client.archived || client.id === initial?.clientId);
 
@@ -248,6 +258,66 @@ export function ProjectDialog({
                 />
               )}
             </Field>
+
+            {/* --------------------------- Delivery --------------------------- */}
+
+            <fieldset className="space-y-3 rounded-lg border border-border bg-surface-2/60 p-3">
+              <legend className="px-1 text-[12px] font-medium text-muted-foreground">
+                Foxwel coordinator & progress
+              </legend>
+
+              <Field
+                name="coordinatorId"
+                label="Coordinator / point of contact"
+                errors={state.fieldErrors}
+                hint={
+                  coordinators.length === 0 ? (
+                    <>
+                      No one on the team list yet —{" "}
+                      <a href="/settings#foxwel-team" className="text-brand hover:underline">
+                        add people in Settings
+                      </a>
+                      .
+                    </>
+                  ) : (
+                    "Picked from the Foxwel team in Settings."
+                  )
+                }
+              >
+                {(props) => (
+                  <select
+                    {...props}
+                    defaultValue={initial?.coordinatorId ?? ""}
+                    className="flex h-9 w-full rounded-md border border-border bg-surface-2 px-3 text-sm text-foreground hover:border-border-strong focus-visible:border-brand-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+                  >
+                    <option value="">Not assigned</option>
+                    {(["EMPLOYEE", "INTERN"] as const).map((kind) => {
+                      const group = coordinators.filter((member) => member.kind === kind);
+                      if (group.length === 0) return null;
+                      return (
+                        <optgroup key={kind} label={kind === "INTERN" ? "Interns" : "Team"}>
+                          {group.map((member) => (
+                            <option key={member.id} value={member.id}>
+                              {member.name}
+                              {member.designation ? ` — ${member.designation}` : ""}
+                              {member.phone ? ` · ${member.phone}` : ""}
+                              {member.active ? "" : " (left)"}
+                            </option>
+                          ))}
+                        </optgroup>
+                      );
+                    })}
+                  </select>
+                )}
+              </Field>
+
+              <ProgressFields
+                errors={state.fieldErrors}
+                initialProgress={initial?.progress ?? "NOT_STARTED"}
+                initialPercent={initial?.progressPercent ?? 0}
+                initialNotes={initial?.progressNotes ?? ""}
+              />
+            </fieldset>
 
             {/* ------------------------- Billing shape ------------------------ */}
 

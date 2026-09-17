@@ -1,9 +1,10 @@
 import { Badge } from "@/components/ui/badge";
 import {
+  PROJECT_PROGRESS_LABELS,
   PROJECT_STATUS_LABELS,
   SCHEDULE_STATE_LABELS,
 } from "@/lib/finance/labels";
-import type { ProjectStatus, ScheduleState } from "@/lib/finance/types";
+import type { ProjectProgress, ProjectStatus, ScheduleState } from "@/lib/finance/types";
 
 const PROJECT_VARIANT = {
   APPROVED: "positive",
@@ -13,6 +14,17 @@ const PROJECT_VARIANT = {
 
 export function ProjectStatusBadge({ status }: { status: ProjectStatus }) {
   return <Badge variant={PROJECT_VARIANT[status]}>{PROJECT_STATUS_LABELS[status]}</Badge>;
+}
+
+const PROGRESS_VARIANT = {
+  NOT_STARTED: "outline",
+  JUST_STARTED: "info",
+  IN_PROGRESS: "warning",
+  COMPLETED: "positive",
+} as const;
+
+export function ProjectProgressBadge({ progress }: { progress: ProjectProgress }) {
+  return <Badge variant={PROGRESS_VARIANT[progress]}>{PROJECT_PROGRESS_LABELS[progress]}</Badge>;
 }
 
 const SCHEDULE_VARIANT = {

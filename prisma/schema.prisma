@@ -55,6 +55,7 @@ model User {
   createdUsers  User[] @relation("UserCreatedBy")
   approvedBy    User?  @relation("UserApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
   approvedUsers User[] @relation("UserApprovedBy")
+  reviewRequests ClientReview[]
 
   @@index([isActive])
   @@index([approvedAt])
@@ -67,13 +68,19 @@ model User {
 
 model Client {
   id            String   @id @default(cuid())
-  /// Who you deal with day to day — often a person or a short trading name.
+  /// The business, as the team refers to it. Shown everywhere a client is named.
   name          String
   /// The registered entity that appears on an invoice, when it differs.
   companyName   String?
+  /// The person who owns the relationship on the client's side — the owner or
+  /// decision maker. Required by the form; nullable for clients added earlier.
+  clientName    String?
   website       String?
+  /// Day-to-day point of contact, when it is someone other than the client.
   contactPerson String?
+  contactPhone  String?
   email         String?
+  /// The client's own number.
   phone         String?
   notes         String?
   isDemo        Boolean  @default(false)
@@ -82,6 +89,8 @@ model Client {
   updatedAt     DateTime @updatedAt
 
   projects Project[]
+  /// The lead this client was won from, if any.
+  leads    Lead[]
 
   @@index([archivedAt])
   @@index([name])
@@ -92,6 +101,15 @@ enum ProjectStatus {
   PENDING
   APPROVED
   ON_HOLD
+}
+
+/// Where the delivery work stands. Separate from ProjectStatus, which decides
+/// whether a project is forecast at all.
+enum ProjectProgress {
+  NOT_STARTED
+  JUST_STARTED
+  IN_PROGRESS
+  COMPLETED
 }
 
 enum BillingType {
@@ -144,20 +162,170 @@ model Project {
   commissionAmountPaise  BigInt?
   commissionNotes        String?
 
+  /// Foxwel's own coordinator and point of contact for the work.
+  coordinatorId          String?
+
+  progress               ProjectProgress @default(NOT_STARTED)
+  /// 0–100.
+  progressPercent        Int             @default(0)
+  /// What has been delivered so far, in plain words.
+  progressNotes          String?
+  completedOn            DateTime?       @db.Date
+
   isDemo                 Boolean       @default(false)
   archivedAt             DateTime?
   createdAt              DateTime      @default(now())
   updatedAt              DateTime      @updatedAt
 
   client             Client              @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  coordinator        TeamMember?         @relation(fields: [coordinatorId], references: [id], onDelete: SetNull)
   schedules          PaymentSchedule[]
   receipts           Receipt[]
   commissionPayments CommissionPayment[]
+  reviews            ClientReview[]
 
   @@index([clientId])
   @@index([status])
+  @@index([progress])
+  @@index([coordinatorId])
   @@index([archivedAt])
   @@map("projects")
+}
+
+enum TeamMemberKind {
+  EMPLOYEE
+  INTERN
+}
+
+/// Foxwel's own people, as they are assigned to work. Not the same as `User`:
+/// a coordinator needs a name and a phone number, not a login.
+model TeamMember {
+  id          String         @id @default(cuid())
+  kind        TeamMemberKind @default(EMPLOYEE)
+  name        String
+  phone       String?
+  email       String?
+  designation String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  coordinatedProjects Project[]
+  ownedLeads          Lead[]
+
+  @@index([isActive])
+  @@map("team_members")
+}
+
+/* -------------------------------------------------------------------------- */
+/* Leads                                                                       */
+/* -------------------------------------------------------------------------- */
+
+enum LeadStage {
+  /// First conversation has happened.
+  JUST_SPOKE
+  /// Requirements, proposal, negotiation — actively being worked.
+  IN_PROCESS
+  /// Closed and won: the lead has become a client.
+  WON
+  /// Closed without a deal.
+  LOST
+}
+
+enum LeadQuality {
+  HOT
+  WARM
+  COLD
+}
+
+enum LeadSource {
+  REFERRAL
+  WEBSITE
+  SOCIAL
+  OUTREACH
+  EVENT
+  EXISTING_CLIENT
+  OTHER
+}
+
+/// A prospective client. Carries the same contact details as a client, so
+/// winning it turns it into one without retyping anything.
+model Lead {
+  id                 String      @id @default(cuid())
+  /// Company name — becomes Client.name on conversion.
+  name               String
+  clientName         String
+  phone              String
+  contactPerson      String?
+  contactPhone       String?
+  email              String?
+  website            String?
+
+  stage              LeadStage   @default(JUST_SPOKE)
+  quality            LeadQuality @default(WARM)
+  source             LeadSource?
+  /// What the work is expected to be worth, in paise.
+  expectedValuePaise BigInt?
+  /// First day of the month the deal is expected to close in.
+  expectedCloseMonth DateTime?   @db.Date
+  requirement        String?
+  ownerId            String?
+  nextFollowUpOn     DateTime?   @db.Date
+  lostReason         String?
+  closedOn           DateTime?   @db.Date
+  notes              String?
+
+  /// Set when the lead is won and becomes (or is matched to) a client.
+  clientId           String?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  owner  TeamMember? @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  client Client?     @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([stage])
+  @@index([expectedCloseMonth])
+  @@index([createdAt])
+  @@map("leads")
+}
+
+/// Who a review link was sent to.
+enum ReviewRecipient {
+  /// The client themselves — the owner or decision maker.
+  CLIENT
+  POINT_OF_CONTACT
+}
+
+/// One review link sent to a client, and their answer once they fill it in.
+/// The link carries a random token; only its SHA-256 hash is stored, so the
+/// table alone cannot be used to submit a review.
+model ClientReview {
+  id             String          @id @default(cuid())
+  projectId      String
+  tokenHash      String          @unique
+  recipient      ReviewRecipient
+  recipientName  String
+  recipientPhone String?
+  requestedById  String?
+  requestedAt    DateTime        @default(now())
+  expiresAt      DateTime
+  revokedAt      DateTime?
+
+  submittedAt    DateTime?
+  /// 1–5.
+  rating         Int?
+  whatWentWell   String?
+  couldImprove   String?
+  reviewerName   String?
+  /// The client agreed their words may be quoted publicly.
+  canQuote       Boolean         @default(false)
+
+  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requestedBy User?   @relation(fields: [requestedById], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([submittedAt])
+  @@map("client_reviews")
 }
 
 /* -------------------------------------------------------------------------- */
@@ -382,6 +550,64 @@ model ExpensePayment {
   @@index([expenseId])
   @@index([paidOn])
   @@map("expense_payments")
+}
+
+/* -------------------------------------------------------------------------- */
+/* Assets                                                                      */
+/* -------------------------------------------------------------------------- */
+
+/// Created on the fly from the asset form, then reused.
+model AssetCategory {
+  id        String   @id @default(cuid())
+  name      String
+  /// Lower-cased name, so "Laptops" and "laptops" are one category.
+  nameKey   String   @unique
+  createdAt DateTime @default(now())
+
+  assets Asset[]
+
+  @@map("asset_categories")
+}
+
+/// Something the company owns — a Mac mini, a monitor, a phone. A register,
+/// not an expense: buying one is recorded under expenses as usual.
+model Asset {
+  id            String    @id @default(cuid())
+  name          String
+  categoryId    String
+  specification String?
+  serialNumber  String?
+  purchasedOn   DateTime? @db.Date
+  costPaise     BigInt?
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  category AssetCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  bill     AssetBill?
+
+  @@index([categoryId])
+  @@map("assets")
+}
+
+/// The purchase bill, kept in its own table so listing assets never loads the
+/// file itself. Stored in Cloudinary when it is configured, otherwise in `data`.
+model AssetBill {
+  id                     String   @id @default(cuid())
+  assetId                String   @unique
+  fileName               String
+  contentType            String
+  sizeBytes              Int
+  data                   Bytes?
+  /// Private ("authenticated") Cloudinary asset; only this app can fetch it.
+  cloudinaryPublicId     String?
+  /// "image" or "raw" — Cloudinary files PDFs as raw so they deliver reliably.
+  cloudinaryResourceType String?
+  uploadedAt             DateTime @default(now())
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@map("asset_bills")
 }
 
 /* -------------------------------------------------------------------------- */

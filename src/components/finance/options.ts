@@ -1,8 +1,10 @@
 import type {
   BillingType,
   CommissionBasis,
+  ProjectProgress,
   ProjectStatus,
   RecurringInterval,
+  TeamMemberKind,
 } from "@/lib/finance/types";
 
 /**
@@ -15,6 +17,16 @@ export type ClientOption = {
   id: string;
   name: string;
   archived: boolean;
+};
+
+/** One of Foxwel's own people, assignable as a project coordinator. */
+export type TeamOption = {
+  id: string;
+  kind: TeamMemberKind;
+  name: string;
+  phone: string | null;
+  designation: string | null;
+  active: boolean;
 };
 
 export type ScheduleOption = {
@@ -59,6 +71,11 @@ export type ProjectOption = {
   commissionPaidPaise: number;
   commissionOutstandingPaise: number;
 
+  coordinatorId: string | null;
+  progress: ProjectProgress;
+  progressPercent: number;
+  progressNotes: string | null;
+
   schedules: ScheduleOption[];
 };
 
@@ -96,5 +113,9 @@ export function toProjectInitial(option: ProjectOption) {
     commissionRateBps: option.commissionRateBps,
     commissionAmountPaise: option.commissionAmountPaise,
     commissionNotes: option.commissionNotes,
+    coordinatorId: option.coordinatorId,
+    progress: option.progress,
+    progressPercent: option.progressPercent,
+    progressNotes: option.progressNotes,
   };
 }

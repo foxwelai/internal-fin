@@ -112,11 +112,16 @@ export default async function ClientDetailPage({
                 {client.website.replace(/^https?:\/\//, "")}
               </a>
             ) : null}
-            {client.contactPerson ? (
-              <span className="inline-flex items-center gap-1.5">
-                <User className="size-3.5 text-faint-foreground" />
-                {client.contactPerson}
-              </span>
+            {client.clientName || client.phone ? (
+              <PersonLine icon={User} label="Client" name={client.clientName} phone={client.phone} />
+            ) : null}
+            {client.contactPerson || client.contactPhone ? (
+              <PersonLine
+                icon={Phone}
+                label="Point of contact"
+                name={client.contactPerson}
+                phone={client.contactPhone}
+              />
             ) : null}
             {client.email ? (
               <a
@@ -126,12 +131,6 @@ export default async function ClientDetailPage({
                 <Mail className="size-3.5 text-faint-foreground" />
                 {client.email}
               </a>
-            ) : null}
-            {client.phone ? (
-              <span className="inline-flex items-center gap-1.5">
-                <Phone className="size-3.5 text-faint-foreground" />
-                <span className="font-mono tabular">{client.phone}</span>
-              </span>
             ) : null}
             {client.archivedAt ? <Badge>Archived</Badge> : null}
             {client.isDemo ? <Badge variant="info">Demo data</Badge> : null}
@@ -145,8 +144,10 @@ export default async function ClientDetailPage({
                 id: client.id,
                 name: client.name,
                 companyName: client.companyName,
+                clientName: client.clientName,
                 website: client.website,
                 contactPerson: client.contactPerson,
+                contactPhone: client.contactPhone,
                 email: client.email,
                 phone: client.phone,
                 notes: client.notes,
@@ -312,5 +313,31 @@ export default async function ClientDetailPage({
         </Card>
       </section>
     </div>
+  );
+}
+
+/** A person with a tap-to-call number — on a phone, the number dials. */
+function PersonLine({
+  icon: Icon,
+  label,
+  name,
+  phone,
+}: {
+  icon: typeof User;
+  label: string;
+  name: string | null;
+  phone: string | null;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <Icon className="size-3.5 text-faint-foreground" />
+      <span className="text-faint-foreground">{label}:</span>
+      {name ?? "—"}
+      {phone ? (
+        <a href={`tel:${phone.replace(/[^\d+]/g, "")}`} className="font-mono tabular hover:text-brand">
+          {phone}
+        </a>
+      ) : null}
+    </span>
   );
 }

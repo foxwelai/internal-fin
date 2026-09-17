@@ -5,22 +5,34 @@ import { toDateInputValue } from "@/lib/dates";
 import { prisma } from "@/lib/db";
 import { requirePageUser } from "@/lib/auth";
 
-import { loadClients, loadFinanceIndex } from "./repository";
-import type { ClientOption, ProjectOption } from "@/components/finance/options";
+import { loadClients, loadFinanceIndex, loadTeamMembers } from "./repository";
+import type { ClientOption, ProjectOption, TeamOption } from "@/components/finance/options";
 
-/** Client + project pickers for the quick-action dialogs. */
+/** Client, project and team pickers for the quick-action dialogs. */
 export async function loadPickerOptions(): Promise<{
   clients: ClientOption[];
   projects: ProjectOption[];
+  team: TeamOption[];
 }> {
   await requirePageUser();
-  const [index, clients, details] = await Promise.all([
+  const [index, clients, details, members] = await Promise.all([
     loadFinanceIndex(),
     loadClients(),
-    // Free-text fields the engine has no reason to carry, but the edit form needs.
+    // Fields the engine has no reason to carry, but the edit form needs.
     prisma.project.findMany({
-      select: { id: true, description: true, notes: true, projectUrl: true, commissionNotes: true },
+      select: {
+        id: true,
+        description: true,
+        notes: true,
+        projectUrl: true,
+        commissionNotes: true,
+        coordinatorId: true,
+        progress: true,
+        progressPercent: true,
+        progressNotes: true,
+      },
     }),
+    loadTeamMembers(),
   ]);
   const detailById = new Map(details.map((row) => [row.id, row]));
 
@@ -67,6 +79,10 @@ export async function loadPickerOptions(): Promise<{
       commissionDuePaise: toWire(rollup.commissionDuePaise),
       commissionPaidPaise: toWire(rollup.commissionPaidPaise),
       commissionOutstandingPaise: toWire(rollup.commissionOutstandingPaise),
+      coordinatorId: detailById.get(rollup.project.id)?.coordinatorId ?? null,
+      progress: detailById.get(rollup.project.id)?.progress ?? "NOT_STARTED",
+      progressPercent: detailById.get(rollup.project.id)?.progressPercent ?? 0,
+      progressNotes: detailById.get(rollup.project.id)?.progressNotes ?? null,
       schedules: (index.schedulesByProjectId.get(rollup.project.id) ?? [])
         .map((schedule) => index.scheduleRollups.get(schedule.id))
         .filter((row) => row !== undefined)
@@ -88,5 +104,13 @@ export async function loadPickerOptions(): Promise<{
       archived: client.archivedAt !== null,
     })),
     projects,
+    team: members.map((member) => ({
+      id: member.id,
+      kind: member.kind,
+      name: member.name,
+      phone: member.phone,
+      designation: member.designation,
+      active: member.isActive,
+    })),
   };
 }

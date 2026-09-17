@@ -15,8 +15,11 @@ const ACTIONS_DIR = path.join(process.cwd(), "src", "app", "actions");
 /** Files that hold no actions, or whose auth is inherently different. */
 const NOT_ACTIONS = new Set(["helpers.ts", "state.ts", "guards.test.ts"]);
 
-/** Sign-in and sign-out are Clerk's; no action here is public. */
-const PUBLIC_ACTIONS = new Set<string>();
+/**
+ * Sign-in and sign-out are Clerk's. The only public action is a client
+ * submitting a review, authorised by the one-time token in their link.
+ */
+const PUBLIC_ACTIONS = new Set<string>(["submitClientReview"]);
 
 function actionFiles(): string[] {
   return readdirSync(ACTIONS_DIR)
@@ -60,6 +63,15 @@ describe("server action authorisation", () => {
     });
   }
 
+  it("keeps the public review action tied to its token and nothing else", () => {
+    const source = readFileSync(path.join(ACTIONS_DIR, "public-review.ts"), "utf8");
+    expect(exportedActions(source).map((action) => action.name)).toEqual(["submitClientReview"]);
+    expect(source).toContain("hashReviewToken(token)");
+    expect(source).toContain("submittedAt: null");
+    expect(source).toContain("expiresAt: { gt: new Date() }");
+    expect(source).toContain("revokedAt: null");
+  });
+
   it("gates every user-management action behind users:manage", () => {
     const source = readFileSync(path.join(ACTIONS_DIR, "users.ts"), "utf8");
     for (const action of exportedActions(source)) {
@@ -75,6 +87,10 @@ describe("server action authorisation", () => {
       "schedules.ts": ["deleteSchedule"],
       "expenses.ts": ["deleteExpense", "deleteExpensePayment", "deleteTemplate"],
       "settings.ts": ["deleteCashMovement"],
+      "team.ts": ["deleteTeamMember"],
+      "assets.ts": ["deleteAsset", "removeAssetBill"],
+      "reviews.ts": ["deleteClientReview"],
+      "leads.ts": ["deleteLead"],
     };
 
     for (const [file, actions] of Object.entries(expected)) {
@@ -103,7 +119,17 @@ describe("approval gate", () => {
     // A layout does not stop route segments from rendering, so the check has
     // to live where the data is read.
     const repository = read("src", "lib", "finance", "repository.ts");
-    for (const loader of ["loadFinanceIndex", "loadSettings", "loadClients", "hasDemoData", "loadLoans"]) {
+    for (const loader of [
+      "loadFinanceIndex",
+      "loadSettings",
+      "loadClients",
+      "hasDemoData",
+      "loadLoans",
+      "loadProjectDelivery",
+      "loadTeamMembers",
+      "loadAssets",
+      "loadLeads",
+    ]) {
       const body = bodyOf(repository, `export const ${loader}`);
       expect(body, `${loader} missing`).not.toBeNull();
       expect(body, `${loader} is unguarded`).toContain("await requirePageUser()");
@@ -128,6 +154,7 @@ describe("approval gate", () => {
     for (const route of [
       ["src", "app", "api", "export", "[dataset]", "route.ts"],
       ["src", "app", "api", "template", "expenses", "route.ts"],
+      ["src", "app", "api", "assets", "[assetId]", "bill", "route.ts"],
     ]) {
       expect(read(...route)).toContain("await getCurrentUser()");
     }

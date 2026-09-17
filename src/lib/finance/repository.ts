@@ -222,3 +222,66 @@ export const loadLoans = cache(async () => {
     include: { payments: { orderBy: { paidOn: "desc" } } },
   });
 });
+
+/**
+ * Delivery details for every project — progress and Foxwel's coordinator.
+ * Kept out of the finance engine: none of it changes a single figure.
+ */
+export const loadProjectDelivery = cache(async () => {
+  await requirePageUser();
+  const rows = await prisma.project.findMany({
+    select: {
+      id: true,
+      progress: true,
+      progressPercent: true,
+      progressNotes: true,
+      completedOn: true,
+      coordinator: { select: { id: true, name: true, phone: true, designation: true } },
+    },
+  });
+  return new Map(rows.map(({ id, ...delivery }) => [id, delivery]));
+});
+
+export type ProjectDelivery = NonNullable<
+  ReturnType<Awaited<ReturnType<typeof loadProjectDelivery>>["get"]>
+>;
+
+/** Foxwel's people, for assigning coordinators. Active first. */
+export const loadTeamMembers = cache(async () => {
+  await requirePageUser();
+  return prisma.teamMember.findMany({
+    orderBy: [{ isActive: "desc" }, { name: "asc" }],
+    include: { _count: { select: { coordinatedProjects: true } } },
+  });
+});
+
+/** The asset register, without the bill files themselves. */
+export const loadAssets = cache(async () => {
+  await requirePageUser();
+  const [assets, categories] = await Promise.all([
+    prisma.asset.findMany({
+      orderBy: [{ purchasedOn: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
+      include: {
+        category: { select: { id: true, name: true } },
+        bill: { select: { fileName: true, contentType: true, sizeBytes: true, uploadedAt: true } },
+      },
+    }),
+    prisma.assetCategory.findMany({
+      orderBy: { name: "asc" },
+      include: { _count: { select: { assets: true } } },
+    }),
+  ]);
+  return { assets, categories };
+});
+
+/** Every lead, with who owns it and the client it became. */
+export const loadLeads = cache(async () => {
+  await requirePageUser();
+  return prisma.lead.findMany({
+    orderBy: [{ updatedAt: "desc" }],
+    include: {
+      owner: { select: { id: true, name: true, phone: true } },
+      client: { select: { id: true, name: true, _count: { select: { projects: true } } } },
+    },
+  });
+});

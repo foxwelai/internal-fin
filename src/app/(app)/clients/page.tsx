@@ -5,7 +5,7 @@ import { Building2, Download, FolderPlus, Globe, Plus, UserPlus } from "lucide-r
 import { PageHeader } from "@/components/finance/page-header";
 import { EmptyState } from "@/components/finance/empty-state";
 import { Money } from "@/components/finance/money";
-import { ProjectStatusBadge } from "@/components/finance/status-badge";
+import { ProjectProgressBadge, ProjectStatusBadge } from "@/components/finance/status-badge";
 import { ClientDialog } from "@/components/dialogs/client-dialog";
 import { ProjectDialog } from "@/components/dialogs/project-dialog";
 import { ClientRowActions } from "@/components/finance/client-row-actions";
@@ -27,11 +27,25 @@ import {
 
 import { formatDay, formatMonthKey, toDateInputValue, todayInIST } from "@/lib/dates";
 import { percentOf } from "@/lib/money";
-import { loadClients, loadFinanceIndex } from "@/lib/finance/repository";
+import {
+  loadClients,
+  loadFinanceIndex,
+  loadProjectDelivery,
+  type ProjectDelivery,
+} from "@/lib/finance/repository";
 import { loadPickerOptions } from "@/lib/finance/view-data";
 import { toProjectInitial } from "@/components/finance/options";
-import { PROJECT_STATUSES, type ProjectStatus } from "@/lib/finance/types";
-import { PROJECT_STATUS_LABELS, RECURRING_INTERVAL_SHORT } from "@/lib/finance/labels";
+import {
+  PROJECT_PROGRESSES,
+  PROJECT_STATUSES,
+  type ProjectProgress,
+  type ProjectStatus,
+} from "@/lib/finance/types";
+import {
+  PROJECT_PROGRESS_LABELS,
+  PROJECT_STATUS_LABELS,
+  RECURRING_INTERVAL_SHORT,
+} from "@/lib/finance/labels";
 import { readParam, resolveMonth, withParams, type SearchParams } from "@/lib/finance/page-helpers";
 import { requirePageUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
@@ -49,14 +63,21 @@ export default async function ClientsPage({
   const tab: Tab = readParam(params, "tab") === "projects" ? "projects" : "clients";
   const query = (readParam(params, "q") ?? "").trim().toLowerCase();
   const statusFilter = readParam(params, "status") as ProjectStatus | undefined;
+  const progressFilter = readParam(params, "progress") as ProjectProgress | undefined;
   const extraFilter = readParam(params, "filter");
   const showArchived = readParam(params, "archived") === "1";
   const sort = readParam(params, "sort") ?? "value";
   const page = Number(readParam(params, "page") ?? 1) || 1;
   const monthParam = formatMonthKey(resolveMonth(params));
 
-  const [viewer, index, { clients: clientOptions, projects: projectOptions }, clientRecords] =
-    await Promise.all([requirePageUser(), loadFinanceIndex(), loadPickerOptions(), loadClients()]);
+  const [viewer, index, { clients: clientOptions, projects: projectOptions }, clientRecords, deliveries] =
+    await Promise.all([
+      requirePageUser(),
+      loadFinanceIndex(),
+      loadPickerOptions(),
+      loadClients(),
+      loadProjectDelivery(),
+    ]);
 
   const canWrite = can(viewer.role, "finance:write");
 
@@ -99,7 +120,7 @@ export default async function ClientsPage({
         {(["clients", "projects"] as Tab[]).map((value) => (
           <Link
             key={value}
-            href={`/clients${withParams(params, { tab: value, page: undefined, status: undefined, filter: undefined })}`}
+            href={`/clients${withParams(params, { tab: value, page: undefined, status: undefined, progress: undefined, filter: undefined })}`}
             aria-current={tab === value ? "page" : undefined}
             className={
               tab === value
@@ -130,7 +151,15 @@ export default async function ClientsPage({
       .filter((client) => (showArchived ? true : client.archivedAt === null))
       .filter((client) =>
         query
-          ? [client.name, client.contactPerson, client.email, client.phone]
+          ? [
+              client.name,
+              client.companyName,
+              client.clientName,
+              client.contactPerson,
+              client.email,
+              client.phone,
+              client.contactPhone,
+            ]
               .filter(Boolean)
               .some((field) => field!.toLowerCase().includes(query))
           : true,
@@ -139,8 +168,18 @@ export default async function ClientsPage({
         const projects = [...index.projectRollups.values()].filter(
           (rollup) => rollup.project.clientId === client.id && rollup.project.archivedAt === null,
         );
+        // Everyone at Foxwel coordinating this client's live work, once each.
+        const coordinators = [
+          ...new Map(
+            projects
+              .map((row) => deliveries.get(row.project.id)?.coordinator)
+              .filter((person) => person != null)
+              .map((person) => [person.id, person]),
+          ).values(),
+        ];
         return {
           client,
+          coordinators,
           projectCount: projects.length,
           collected: projects.reduce((sum, row) => sum + row.receivedPaise, 0n),
           outstanding: projects.reduce(
@@ -210,6 +249,7 @@ export default async function ClientsPage({
                     <TableRow>
                       <TableHead>Client</TableHead>
                       <TableHead className="hidden md:table-cell">Contact</TableHead>
+                      <TableHead className="hidden lg:table-cell">Foxwel POC</TableHead>
                       <TableHead className="text-right">Projects</TableHead>
                       <TableHead className="text-right">Collected</TableHead>
                       <TableHead className="text-right">Outstanding</TableHead>
@@ -217,7 +257,7 @@ export default async function ClientsPage({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {view.rows.map(({ client, projectCount, collected, outstanding, overdue }) => (
+                    {view.rows.map(({ client, coordinators, projectCount, collected, outstanding, overdue }) => (
                       <TableRow key={client.id}>
                         <TableCell>
                           <Link
@@ -226,9 +266,23 @@ export default async function ClientsPage({
                           >
                             {client.name}
                           </Link>
-                          {client.companyName ? (
+                          {client.clientName || client.phone ? (
                             <span className="block text-[12px] text-muted-foreground">
-                              {client.companyName}
+                              {client.clientName}
+                              {client.clientName && client.phone ? " · " : null}
+                              {client.phone ? <PhoneLink phone={client.phone} /> : null}
+                            </span>
+                          ) : null}
+                          {/* On a phone the contact column is hidden, so the POC rides here. */}
+                          {client.contactPerson ? (
+                            <span className="block text-[12px] text-faint-foreground md:hidden">
+                              POC: {client.contactPerson}
+                              {client.contactPhone ? (
+                                <>
+                                  {" · "}
+                                  <PhoneLink phone={client.contactPhone} />
+                                </>
+                              ) : null}
                             </span>
                           ) : null}
                           {client.archivedAt ? (
@@ -243,7 +297,12 @@ export default async function ClientsPage({
                           ) : null}
                         </TableCell>
                         <TableCell className="hidden text-[13px] text-muted-foreground md:table-cell">
-                          {client.contactPerson ?? "—"}
+                          <span className="text-foreground">{client.contactPerson ?? "—"}</span>
+                          {client.contactPhone ? (
+                            <span className="block text-[12px]">
+                              <PhoneLink phone={client.contactPhone} />
+                            </span>
+                          ) : null}
                           {client.email ? (
                             <span className="block text-[12px] text-faint-foreground">
                               {client.email}
@@ -260,6 +319,22 @@ export default async function ClientsPage({
                               {client.website.replace(/^https?:\/\//, "")}
                             </a>
                           ) : null}
+                        </TableCell>
+                        <TableCell className="hidden text-[13px] lg:table-cell">
+                          {coordinators.length === 0 ? (
+                            <span className="text-faint-foreground">—</span>
+                          ) : (
+                            coordinators.map((person) => (
+                              <span key={person.id} className="block">
+                                {person.name}
+                                {person.phone ? (
+                                  <span className="block text-[12px] text-muted-foreground">
+                                    <PhoneLink phone={person.phone} />
+                                  </span>
+                                ) : null}
+                              </span>
+                            ))
+                          )}
                         </TableCell>
                         <TableCell className="text-right font-mono tabular text-[13px] text-muted-foreground">
                           {projectCount}
@@ -284,8 +359,10 @@ export default async function ClientsPage({
                               id: client.id,
                               name: client.name,
                               companyName: client.companyName,
+                              clientName: client.clientName,
                               website: client.website,
                               contactPerson: client.contactPerson,
+                              contactPhone: client.contactPhone,
                               email: client.email,
                               phone: client.phone,
                               notes: client.notes,
@@ -311,6 +388,9 @@ export default async function ClientsPage({
       .filter((rollup) => (showArchived ? true : rollup.project.archivedAt === null))
       .filter((rollup) => (statusFilter ? rollup.project.status === statusFilter : true))
       .filter((rollup) =>
+        progressFilter ? deliveries.get(rollup.project.id)?.progress === progressFilter : true,
+      )
+      .filter((rollup) =>
         extraFilter === "unscheduled"
           ? rollup.isForecastable && rollup.unscheduledPaise > 0n
           : extraFilter === "overdue"
@@ -319,7 +399,9 @@ export default async function ClientsPage({
       )
       .filter((rollup) =>
         query
-          ? `${rollup.project.name} ${rollup.project.clientName}`.toLowerCase().includes(query)
+          ? `${rollup.project.name} ${rollup.project.clientName} ${deliveries.get(rollup.project.id)?.coordinator?.name ?? ""}`
+              .toLowerCase()
+              .includes(query)
           : true,
       )
       .sort((a, b) => {
@@ -336,6 +418,16 @@ export default async function ClientsPage({
       });
 
     const view = paginate(rows, page);
+    const progressCounts = Object.fromEntries(
+      PROJECT_PROGRESSES.map((progress) => [
+        progress,
+        [...index.projectRollups.values()].filter(
+          (rollup) =>
+            rollup.project.archivedAt === null &&
+            deliveries.get(rollup.project.id)?.progress === progress,
+        ).length,
+      ]),
+    );
     const counts = Object.fromEntries(
       PROJECT_STATUSES.map((status) => [
         status,
@@ -348,7 +440,7 @@ export default async function ClientsPage({
     return (
       <>
         <div className="flex flex-wrap items-center gap-2">
-          <SearchInput placeholder="Search projects or clients…" className="w-full sm:w-72" />
+          <SearchInput placeholder="Search projects, clients, coordinators…" className="w-full sm:w-72" />
           <FilterChips
             paramKey="status"
             options={PROJECT_STATUSES.map((status) => ({
@@ -369,6 +461,18 @@ export default async function ClientsPage({
             ]}
           />
           <ToggleParam paramKey="archived" label="Show archived" />
+        </div>
+
+        <div className="-mt-2 flex flex-wrap items-center gap-2">
+          <span className="text-[12px] font-medium text-faint-foreground">Delivery</span>
+          <FilterChips
+            paramKey="progress"
+            options={PROJECT_PROGRESSES.map((progress) => ({
+              value: progress,
+              label: PROJECT_PROGRESS_LABELS[progress],
+              count: progressCounts[progress],
+            }))}
+          />
         </div>
 
         <Card className="overflow-hidden">
@@ -396,6 +500,8 @@ export default async function ClientsPage({
                     <TableRow>
                       <TableHead>Project</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Delivery</TableHead>
+                      <TableHead className="hidden lg:table-cell">Foxwel POC</TableHead>
                       <TableHead className="hidden lg:table-cell">Recurring</TableHead>
                       <TableHead className="text-right">Budget</TableHead>
                       <TableHead className="text-right">Received</TableHead>
@@ -411,6 +517,7 @@ export default async function ClientsPage({
                     {view.rows.map((rollup) => {
                       const option = projectOptions.find((row) => row.id === rollup.project.id);
                       const collectedShare = percentOf(rollup.receivedPaise, rollup.budgetPaise) ?? 0;
+                      const delivery = deliveries.get(rollup.project.id);
                       return (
                         <TableRow key={rollup.project.id}>
                           <TableCell className="min-w-[15rem]">
@@ -432,6 +539,23 @@ export default async function ClientsPage({
                           </TableCell>
                           <TableCell>
                             <ProjectStatusBadge status={rollup.project.status} />
+                          </TableCell>
+                          <TableCell className="min-w-[8.5rem]">
+                            {delivery ? <DeliveryCell delivery={delivery} /> : null}
+                          </TableCell>
+                          <TableCell className="hidden text-[13px] lg:table-cell">
+                            {delivery?.coordinator ? (
+                              <>
+                                {delivery.coordinator.name}
+                                {delivery.coordinator.phone ? (
+                                  <span className="block text-[12px] text-muted-foreground">
+                                    <PhoneLink phone={delivery.coordinator.phone} />
+                                  </span>
+                                ) : null}
+                              </>
+                            ) : (
+                              <span className="text-faint-foreground">—</span>
+                            )}
                           </TableCell>
                           <TableCell className="hidden whitespace-nowrap lg:table-cell">
                             {rollup.project.billingType === "SUBSCRIPTION" &&
@@ -546,4 +670,38 @@ export default async function ClientsPage({
       </>
     );
   }
+}
+
+/** Tap to call on a phone; plain, copyable text on a desktop. */
+function PhoneLink({ phone }: { phone: string }) {
+  return (
+    <a href={`tel:${phone.replace(/[^\d+]/g, "")}`} className="font-mono tabular hover:text-brand">
+      {phone}
+    </a>
+  );
+}
+
+function DeliveryCell({ delivery }: { delivery: ProjectDelivery }) {
+  const done = delivery.progress === "COMPLETED";
+  return (
+    <div title={delivery.progressNotes ?? undefined}>
+      <div className="flex items-center gap-2">
+        <ProjectProgressBadge progress={delivery.progress} />
+        <span className="font-mono tabular text-[12px] text-muted-foreground">
+          {delivery.progressPercent}%
+        </span>
+      </div>
+      <Meter
+        value={delivery.progressPercent}
+        className="mt-1.5 max-w-[8rem]"
+        barClassName={done ? "bg-positive" : "bg-info"}
+        label={`${delivery.progressPercent}% complete`}
+      />
+      {done && delivery.completedOn ? (
+        <span className="mt-1 block text-[11px] text-faint-foreground">
+          Done {formatDay(delivery.completedOn)}
+        </span>
+      ) : null}
+    </div>
+  );
 }

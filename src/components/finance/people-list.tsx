@@ -75,7 +75,6 @@ export function PeopleList({ people }: { people: PersonRow[] }) {
 function PersonItem({ person }: { person: PersonRow }) {
   const [value, setValue] = React.useState<AccessLevel>(person.access);
   const [pendingSuperAdmin, setPendingSuperAdmin] = React.useState(false);
-  const formRef = React.useRef<HTMLFormElement>(null);
 
   // The result is handled where it arrives, not in an effect: a refused change
   // snaps the dropdown straight back to what the server holds.
@@ -101,11 +100,16 @@ function PersonItem({ person }: { person: PersonRow }) {
     setValue(person.access);
   }
 
-
+  // Dispatched directly rather than through `<form action>`: React resets a
+  // form once its action settles, which put the select back on its first
+  // option ("No access") even though the change had saved.
   const submit = (next: AccessLevel) => {
     setValue(next);
-    // Let React commit the new hidden value before the form is read.
-    requestAnimationFrame(() => formRef.current?.requestSubmit());
+    const formData = new FormData();
+    if (person.userId) formData.set("userId", person.userId);
+    if (person.clerkUserId) formData.set("clerkUserId", person.clerkUserId);
+    formData.set("access", next);
+    React.startTransition(() => formAction(formData));
   };
 
   const locked = person.isSelf || person.isLastSuperAdmin;
@@ -161,11 +165,7 @@ function PersonItem({ person }: { person: PersonRow }) {
         </div>
       </div>
 
-      <form ref={formRef} action={formAction} className="flex shrink-0 items-center gap-2 sm:justify-end">
-        {person.userId ? <input type="hidden" name="userId" value={person.userId} /> : null}
-        {person.clerkUserId ? <input type="hidden" name="clerkUserId" value={person.clerkUserId} /> : null}
-        <input type="hidden" name="access" value={value} />
-
+      <div className="flex shrink-0 items-center gap-2 sm:justify-end">
         {isPending ? <Loader2 className="size-4 animate-spin text-faint-foreground" aria-label="Saving" /> : null}
 
         <label className="sr-only" htmlFor={`access-${person.key}`}>
@@ -197,7 +197,7 @@ function PersonItem({ person }: { person: PersonRow }) {
             </option>
           ))}
         </select>
-      </form>
+      </div>
 
       {lockReason ? <p className="text-[11px] text-faint-foreground sm:hidden">{lockReason}</p> : null}
 

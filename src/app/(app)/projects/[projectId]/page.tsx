@@ -4,7 +4,10 @@ import type { Metadata } from "next";
 import {
   ArrowLeft,
   CalendarPlus,
+  Gauge,
   HandCoins,
+  MessageSquareHeart,
+  Star,
   Link as LinkIcon,
   Pencil,
   Wallet,
@@ -14,7 +17,15 @@ import { PageHeader, SectionHeading } from "@/components/finance/page-header";
 import { MetricCard } from "@/components/finance/metric-card";
 import { EmptyState } from "@/components/finance/empty-state";
 import { Money } from "@/components/finance/money";
-import { ProjectStatusBadge, ScheduleStateBadge } from "@/components/finance/status-badge";
+import {
+  ProjectProgressBadge,
+  ProjectStatusBadge,
+  ScheduleStateBadge,
+} from "@/components/finance/status-badge";
+import {
+  MarkCompletedButton,
+  ProjectProgressDialog,
+} from "@/components/dialogs/project-progress-dialog";
 import { ProjectDialog } from "@/components/dialogs/project-dialog";
 import { ScheduleDialog } from "@/components/dialogs/schedule-dialog";
 import { ReceiptDialog } from "@/components/dialogs/receipt-dialog";
@@ -43,6 +54,8 @@ import { loadPickerOptions } from "@/lib/finance/view-data";
 import { toProjectInitial } from "@/components/finance/options";
 import { PAYMENT_METHOD_LABELS, RECURRING_INTERVAL_SHORT } from "@/lib/finance/labels";
 import { CommissionPaymentDialog } from "@/components/dialogs/commission-payment-dialog";
+import { ReviewRequestDialog } from "@/components/dialogs/review-request-dialog";
+import { ReviewItemActions } from "@/components/finance/review-item-actions";
 import { getCurrentUser, requirePageUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 
@@ -73,6 +86,12 @@ export default async function ProjectDetailPage({
       where: { id: projectId },
       include: {
         receipts: { include: { allocations: true } },
+        coordinator: true,
+        client: true,
+        reviews: {
+          orderBy: { requestedAt: "desc" },
+          include: { requestedBy: { select: { name: true } } },
+        },
         commissionPayments: { orderBy: { paidOn: "desc" } },
       },
     }),
@@ -97,6 +116,24 @@ export default async function ProjectDetailPage({
   );
 
   const collectedShare = percentOf(rollup.receivedPaise, rollup.budgetPaise) ?? 0;
+  const canDelete = can(viewer.role, "finance:delete");
+  const now = new Date();
+  const submittedReviews = record.reviews.filter((review) => review.submittedAt !== null);
+  const openLinks = record.reviews.filter(
+    (review) => review.submittedAt === null && review.revokedAt === null && review.expiresAt > now,
+  );
+  const averageRating =
+    submittedReviews.length > 0
+      ? submittedReviews.reduce((sum, review) => sum + (review.rating ?? 0), 0) / submittedReviews.length
+      : null;
+  const reviewContacts = {
+    companyName: record.client.name,
+    clientName: record.client.clientName,
+    clientPhone: record.client.phone,
+    contactPerson: record.client.contactPerson,
+    contactPhone: record.client.contactPhone,
+    email: record.client.email,
+  };
   const scheduledTotal = schedules.reduce((sum, row) => sum + row.schedule.amountPaise, 0n);
   const allocatedTotal = schedules.reduce((sum, row) => sum + row.allocatedPaise, 0n);
 
@@ -165,6 +202,12 @@ export default async function ProjectDetailPage({
                 Add milestone
               </Button>
             </ScheduleDialog>
+            <ReviewRequestDialog project={{ id: projectId, name: project.name }} contacts={reviewContacts}>
+              <Button variant="secondary" size="sm">
+                <MessageSquareHeart />
+                Review link
+              </Button>
+            </ReviewRequestDialog>
             <ReceiptDialog projects={[option]} defaultProjectId={projectId} today={today}>
               <Button size="sm">
                 <Wallet />
@@ -175,6 +218,105 @@ export default async function ProjectDetailPage({
           )
         }
       />
+
+      {/* ------------------------------ Delivery --------------------------- */}
+
+      <Card>
+        <CardContent className="grid gap-5 p-4 sm:p-5 md:grid-cols-[1fr_16rem]">
+          <div className="min-w-0 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-faint-foreground">
+                  Delivery
+                </span>
+                <ProjectProgressBadge progress={record.progress} />
+              </div>
+              {canWrite ? (
+                <div className="flex flex-wrap gap-2">
+                  <ProjectProgressDialog
+                    project={{
+                      id: projectId,
+                      name: project.name,
+                      progress: record.progress,
+                      progressPercent: record.progressPercent,
+                      progressNotes: record.progressNotes,
+                    }}
+                  >
+                    <Button size="sm" variant="outline">
+                      <Gauge />
+                      Update progress
+                    </Button>
+                  </ProjectProgressDialog>
+                  {record.progress !== "COMPLETED" ? (
+                    <MarkCompletedButton projectId={projectId} />
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+
+            <div>
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="font-mono tabular text-[26px] font-semibold leading-8">
+                  {record.progressPercent}%
+                </span>
+                <span className="text-right text-[12px] text-muted-foreground">
+                  {record.progress === "COMPLETED" && record.completedOn
+                    ? `Completed ${formatDay(record.completedOn)}`
+                    : project.expectedCompletionDate
+                      ? `Due ${formatDay(project.expectedCompletionDate)} · ${formatRelativeDay(project.expectedCompletionDate, todayInIST())}`
+                      : "No due date set"}
+                </span>
+              </div>
+              <Meter
+                value={record.progressPercent}
+                className="mt-2 h-2"
+                barClassName={record.progress === "COMPLETED" ? "bg-positive" : "bg-info"}
+                label={`${record.progressPercent}% complete`}
+              />
+            </div>
+
+            <div>
+              <p className="text-[12px] font-medium text-muted-foreground">What&rsquo;s completed</p>
+              <p className="mt-1 whitespace-pre-line text-[13px] leading-relaxed">
+                {record.progressNotes ?? (
+                  <span className="text-faint-foreground">Nothing noted yet.</span>
+                )}
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-border bg-surface-2/60 p-3.5">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-faint-foreground">
+              Foxwel coordinator
+            </p>
+            {record.coordinator ? (
+              <div className="mt-2 space-y-0.5 text-[13px]">
+                <p className="font-medium">
+                  {record.coordinator.name}
+                  {record.coordinator.isActive ? null : (
+                    <span className="ml-2 text-[11px] font-normal text-faint-foreground">(left)</span>
+                  )}
+                </p>
+                {record.coordinator.designation ? (
+                  <p className="text-muted-foreground">{record.coordinator.designation}</p>
+                ) : null}
+                {record.coordinator.phone ? (
+                  <a
+                    href={`tel:${record.coordinator.phone.replace(/[^\d+]/g, "")}`}
+                    className="block font-mono tabular text-brand hover:underline"
+                  >
+                    {record.coordinator.phone}
+                  </a>
+                ) : null}
+              </div>
+            ) : (
+              <p className="mt-2 text-[13px] text-faint-foreground">
+                Not assigned{canWrite ? " — pick someone under Edit." : "."}
+              </p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* ------------------------------ Figures ---------------------------- */}
 
@@ -605,6 +747,118 @@ export default async function ProjectDetailPage({
                 </TableFooter>
               </Table>
             </TableWrap>
+          )}
+        </Card>
+      </section>
+
+      {/* --------------------------- Client reviews ------------------------ */}
+
+      <section id="reviews" className="scroll-mt-20 space-y-2.5">
+        <SectionHeading
+          title="Client reviews"
+          description={
+            averageRating !== null ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Star className="size-3.5 fill-brand text-brand" />
+                <span className="font-mono tabular text-foreground">{averageRating.toFixed(1)}</span>
+                from {submittedReviews.length} review{submittedReviews.length === 1 ? "" : "s"}
+              </span>
+            ) : (
+              "Send the client a link; what they write lands here."
+            )
+          }
+          actions={
+            canWrite ? (
+              <ReviewRequestDialog project={{ id: projectId, name: project.name }} contacts={reviewContacts}>
+                <Button size="sm" variant="outline">
+                  <MessageSquareHeart />
+                  Send review link
+                </Button>
+              </ReviewRequestDialog>
+            ) : null
+          }
+        />
+
+        <Card className="overflow-hidden">
+          {submittedReviews.length === 0 && openLinks.length === 0 ? (
+            <EmptyState
+              icon={MessageSquareHeart}
+              title="No reviews yet"
+              description="Send a link to the client or their point of contact — by WhatsApp, SMS or email. They don't need an account."
+              compact
+            />
+          ) : (
+            <ul className="divide-y divide-border">
+              {submittedReviews.map((review) => (
+                <li key={review.id} className="flex gap-3 px-4 py-4 sm:px-5">
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <span className="flex" aria-label={`${review.rating} out of 5`}>
+                        {[1, 2, 3, 4, 5].map((value) => (
+                          <Star
+                            key={value}
+                            className={
+                              value <= (review.rating ?? 0)
+                                ? "size-4 fill-brand text-brand"
+                                : "size-4 text-border-strong"
+                            }
+                          />
+                        ))}
+                      </span>
+                      <span className="text-[13px] font-medium">{review.reviewerName ?? review.recipientName}</span>
+                      <Badge variant={review.recipient === "CLIENT" ? "info" : "outline"}>
+                        {review.recipient === "CLIENT" ? "Client" : "Point of contact"}
+                      </Badge>
+                      {review.canQuote ? <Badge variant="positive">OK to quote</Badge> : null}
+                      <span className="font-mono tabular text-[12px] text-faint-foreground">
+                        {review.submittedAt ? formatDay(todayInIST(review.submittedAt)) : null}
+                      </span>
+                    </div>
+                    {review.whatWentWell ? (
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-faint-foreground">
+                          Went well
+                        </p>
+                        <p className="mt-0.5 whitespace-pre-line text-[13px] leading-relaxed">{review.whatWentWell}</p>
+                      </div>
+                    ) : null}
+                    {review.couldImprove ? (
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-faint-foreground">
+                          Could be better
+                        </p>
+                        <p className="mt-0.5 whitespace-pre-line text-[13px] leading-relaxed">{review.couldImprove}</p>
+                      </div>
+                    ) : null}
+                    {!review.whatWentWell && !review.couldImprove ? (
+                      <p className="text-[13px] text-faint-foreground">Rating only, no comments.</p>
+                    ) : null}
+                  </div>
+                  {canDelete ? (
+                    <ReviewItemActions
+                      id={review.id}
+                      name={review.reviewerName ?? review.recipientName}
+                      submitted
+                    />
+                  ) : null}
+                </li>
+              ))}
+
+              {openLinks.map((review) => (
+                <li key={review.id} className="flex items-center gap-3 bg-surface-2/40 px-4 py-3 sm:px-5">
+                  <div className="min-w-0 flex-1 text-[13px] text-muted-foreground">
+                    <span className="text-foreground">Waiting for {review.recipientName}</span>{" "}
+                    ({review.recipient === "CLIENT" ? "client" : "point of contact"}) · link sent{" "}
+                    {formatDay(todayInIST(review.requestedAt))}
+                    {review.requestedBy ? ` by ${review.requestedBy.name}` : ""} · expires{" "}
+                    {formatDay(todayInIST(review.expiresAt))}
+                  </div>
+                  {canWrite ? (
+                    <ReviewItemActions id={review.id} name={review.recipientName} submitted={false} />
+                  ) : null}
+                </li>
+              ))}
+            </ul>
           )}
         </Card>
       </section>

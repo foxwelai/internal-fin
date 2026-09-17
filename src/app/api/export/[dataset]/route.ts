@@ -10,16 +10,17 @@ import {
   monthStart,
   toDateInputValue,
 } from "@/lib/dates";
-import { loadFinanceIndex } from "@/lib/finance/repository";
+import { loadFinanceIndex, loadProjectDelivery } from "@/lib/finance/repository";
 import { forecastableScheduleRollups } from "@/lib/finance/engine";
 import {
   EXPENSE_CATEGORY_LABELS,
   PAYMENT_METHOD_LABELS,
+  PROJECT_PROGRESS_LABELS,
   PROJECT_STATUS_LABELS,
   SCHEDULE_STATE_LABELS,
 } from "@/lib/finance/labels";
 import { resolveMonth } from "@/lib/finance/page-helpers";
-import type { ExpenseCategory, ProjectStatus } from "@/lib/finance/types";
+import type { ExpenseCategory, ProjectProgress, ProjectStatus } from "@/lib/finance/types";
 
 const DATASETS = ["clients", "projects", "payments", "expenses"] as const;
 type Dataset = (typeof DATASETS)[number];
@@ -78,21 +79,26 @@ export async function GET(
       const clients = await prisma.client.findMany({ orderBy: { name: "asc" } });
 
       rows = [
-        ["Client", "Contact person", "Email", "Phone", "Projects", "Collected (INR)", "Scheduled outstanding (INR)", "Overdue (INR)", "Status", "Notes"],
+        ["Company", "Client name", "Client phone", "Contact person", "Contact phone", "Email", "Website", "Registered name", "Projects", "Collected (INR)", "Scheduled outstanding (INR)", "Overdue (INR)", "Status", "Notes"],
         ...clients
           .filter((client) => (showArchived ? true : client.archivedAt === null))
           .filter((client) =>
-            query ? client.name.toLowerCase().includes(query) ||
-              (client.contactPerson ?? "").toLowerCase().includes(query) ||
-              (client.email ?? "").toLowerCase().includes(query) : true,
+            query
+              ? [client.name, client.companyName, client.clientName, client.contactPerson, client.email, client.phone, client.contactPhone]
+                  .some((field) => (field ?? "").toLowerCase().includes(query))
+              : true,
           )
           .map((client) => {
             const total = totals.get(client.id);
             return [
               client.name,
-              client.contactPerson,
-              client.email,
+              client.clientName,
               client.phone,
+              client.contactPerson,
+              client.contactPhone,
+              client.email,
+              client.website,
+              client.companyName,
               total?.count ?? 0,
               formatForCsv(total?.collected ?? 0n),
               formatForCsv(total?.outstanding ?? 0n),
@@ -109,21 +115,31 @@ export async function GET(
     case "projects": {
       const showArchived = search.archived === "1";
       const status = search.status as ProjectStatus | undefined;
+      const progress = search.progress as ProjectProgress | undefined;
+      const deliveries = await loadProjectDelivery();
 
       rows = [
-        ["Client", "Project", "Status", "Budget (INR)", "Received (INR)", "Remaining (INR)", "Scheduled outstanding (INR)", "Unscheduled (INR)", "Overdue (INR)", "Next payment date", "Start date", "Expected completion", "Archived"],
+        ["Client", "Project", "Status", "Progress", "Complete (%)", "What's completed", "Foxwel coordinator", "Coordinator phone", "Budget (INR)", "Received (INR)", "Remaining (INR)", "Scheduled outstanding (INR)", "Unscheduled (INR)", "Overdue (INR)", "Next payment date", "Start date", "Expected completion", "Archived"],
         ...[...index.projectRollups.values()]
           .filter((rollup) => (showArchived ? true : rollup.project.archivedAt === null))
           .filter((rollup) => (status ? rollup.project.status === status : true))
+          .filter((rollup) => (progress ? deliveries.get(rollup.project.id)?.progress === progress : true))
           .filter((rollup) =>
             query
-              ? `${rollup.project.name} ${rollup.project.clientName}`.toLowerCase().includes(query)
+              ? `${rollup.project.name} ${rollup.project.clientName} ${deliveries.get(rollup.project.id)?.coordinator?.name ?? ""}`
+                  .toLowerCase()
+                  .includes(query)
               : true,
           )
           .map((rollup) => [
             rollup.project.clientName,
             rollup.project.name,
             PROJECT_STATUS_LABELS[rollup.project.status],
+            PROJECT_PROGRESS_LABELS[deliveries.get(rollup.project.id)?.progress ?? "NOT_STARTED"],
+            deliveries.get(rollup.project.id)?.progressPercent ?? 0,
+            deliveries.get(rollup.project.id)?.progressNotes ?? null,
+            deliveries.get(rollup.project.id)?.coordinator?.name ?? null,
+            deliveries.get(rollup.project.id)?.coordinator?.phone ?? null,
             formatForCsv(rollup.budgetPaise),
             formatForCsv(rollup.receivedPaise),
             formatForCsv(rollup.remainingBalancePaise),

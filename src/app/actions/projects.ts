@@ -4,7 +4,9 @@ import { redirect } from "next/navigation";
 
 import { requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { projectSchema } from "@/lib/validation/schemas";
+import { projectProgressSchema, projectSchema } from "@/lib/validation/schemas";
+import { todayInIST } from "@/lib/dates";
+import type { ProjectProgress } from "@/lib/finance/types";
 import { PROJECT_STATUSES } from "@/lib/finance/types";
 import { formatINR } from "@/lib/money";
 
@@ -41,6 +43,10 @@ export async function saveProject(_prev: ActionState, formData: FormData): Promi
       commissionPercent: formValue(formData, "commissionPercent"),
       commissionAmount: formValue(formData, "commissionAmount"),
       commissionNotes: formValue(formData, "commissionNotes"),
+      coordinatorId: formValue(formData, "coordinatorId"),
+      progress: formValue(formData, "progress") || "NOT_STARTED",
+      progressPercent: formValue(formData, "progressPercent"),
+      progressNotes: formValue(formData, "progressNotes"),
     });
     if (!parsed.success) return fromZodError(parsed.error);
 
@@ -74,6 +80,15 @@ export async function saveProject(_prev: ActionState, formData: FormData): Promi
     const client = await prisma.client.findUnique({ where: { id: rest.clientId } });
     if (!client) return failure("Choose a client for this project.", { clientId: ["Client not found"] });
 
+    if (rest.coordinatorId) {
+      const coordinator = await prisma.teamMember.findUnique({ where: { id: rest.coordinatorId } });
+      if (!coordinator) {
+        return failure("That coordinator is no longer on the team list.", {
+          coordinatorId: ["Not on the team list"],
+        });
+      }
+    }
+
     if (id) {
       // A budget cut must not strand receipts that already exceed it.
       const received = await prisma.receipt.aggregate({
@@ -89,19 +104,107 @@ export async function saveProject(_prev: ActionState, formData: FormData): Promi
         );
       }
 
+      const before = await prisma.project.findUnique({
+        where: { id },
+        select: { completedOn: true },
+      });
       await prisma.project.update({
         where: { id },
-        data: { ...rest, budgetPaise: budget, ...billing, ...commission },
+        data: {
+          ...rest,
+          ...delivery(rest.progress, rest.progressPercent, before?.completedOn ?? null),
+          budgetPaise: budget,
+          ...billing,
+          ...commission,
+        },
       });
       revalidateFinance();
       return success(`${rest.name} updated.`);
     }
 
     const created = await prisma.project.create({
-      data: { ...rest, budgetPaise: budget, ...billing, ...commission },
+      data: {
+        ...rest,
+        ...delivery(rest.progress, rest.progressPercent, null),
+        budgetPaise: budget,
+        ...billing,
+        ...commission,
+      },
     });
     revalidateFinance();
     return success(`${rest.name} created.`, created.id);
+  });
+}
+
+/**
+ * Keeps stage, percentage and completion date consistent. Completed and 100%
+ * mean the same thing, dated the day it was first marked — re-saving a
+ * finished project must not move that date.
+ */
+function delivery(progress: ProjectProgress, percent: number, completedOn: Date | null) {
+  if (progress === "COMPLETED" || percent === 100) {
+    return {
+      progress: "COMPLETED" as const,
+      progressPercent: 100,
+      completedOn: completedOn ?? todayInIST(),
+    };
+  }
+  return { progress, progressPercent: percent, completedOn: null };
+}
+
+export async function updateProjectProgress(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  return runAction(async () => {
+    await requirePermission("finance:write");
+
+    const parsed = projectProgressSchema.safeParse({
+      id: formValue(formData, "id"),
+      progress: formValue(formData, "progress"),
+      progressPercent: formValue(formData, "progressPercent"),
+      progressNotes: formValue(formData, "progressNotes"),
+    });
+    if (!parsed.success) return fromZodError(parsed.error);
+
+    const { id, progress, progressPercent, progressNotes } = parsed.data;
+    const before = await prisma.project.findUnique({ where: { id }, select: { completedOn: true } });
+    if (!before) return failure("That project no longer exists.");
+
+    const project = await prisma.project.update({
+      where: { id },
+      data: { progressNotes, ...delivery(progress, progressPercent, before.completedOn) },
+    });
+
+    revalidateFinance();
+    return success(
+      project.progress === "COMPLETED"
+        ? `${project.name} marked completed.`
+        : `${project.name} is ${project.progressPercent}% complete.`,
+    );
+  });
+}
+
+export async function markProjectCompleted(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  return runAction(async () => {
+    await requirePermission("finance:write");
+
+    const id = formValue(formData, "id");
+    if (!id) return failure("Missing project reference.");
+
+    const before = await prisma.project.findUnique({ where: { id }, select: { completedOn: true } });
+    if (!before) return failure("That project no longer exists.");
+
+    const project = await prisma.project.update({
+      where: { id },
+      data: delivery("COMPLETED", 100, before.completedOn),
+    });
+
+    revalidateFinance();
+    return success(`${project.name} marked completed.`);
   });
 }
 

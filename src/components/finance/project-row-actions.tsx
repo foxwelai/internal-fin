@@ -1,11 +1,15 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import {
   Archive,
   ArchiveRestore,
   CalendarPlus,
+  CheckCheck,
   CircleCheck,
+  Gauge,
+  MessageSquareHeart,
   CirclePause,
   Clock,
   MoreHorizontal,
@@ -27,7 +31,13 @@ import { ProjectDialog, type ProjectInitial } from "@/components/dialogs/project
 import { ScheduleDialog } from "@/components/dialogs/schedule-dialog";
 import { ReceiptDialog } from "@/components/dialogs/receipt-dialog";
 import { ConfirmAction, InlineAction } from "@/components/finance/confirm-action";
-import { deleteProject, setProjectArchived, setProjectStatus } from "@/app/actions/projects";
+import { ProjectProgressDialog } from "@/components/dialogs/project-progress-dialog";
+import {
+  deleteProject,
+  markProjectCompleted,
+  setProjectArchived,
+  setProjectStatus,
+} from "@/app/actions/projects";
 import type { ClientOption, ProjectOption } from "@/components/finance/options";
 import type { ProjectStatus } from "@/lib/finance/types";
 import { PROJECT_STATUS_LABELS } from "@/lib/finance/labels";
@@ -59,6 +69,7 @@ export function ProjectRowActions({
   const editTrigger = React.useRef<HTMLButtonElement>(null);
   const scheduleTrigger = React.useRef<HTMLButtonElement>(null);
   const receiptTrigger = React.useRef<HTMLButtonElement>(null);
+  const progressTrigger = React.useRef<HTMLButtonElement>(null);
 
   const otherStatuses = (["APPROVED", "PENDING", "ON_HOLD"] as ProjectStatus[]).filter(
     (status) => status !== project.status,
@@ -84,6 +95,28 @@ export function ProjectRowActions({
           <DropdownMenuItem onSelect={() => setTimeout(() => editTrigger.current?.click(), 0)}>
             <Pencil />
             Edit project
+          </DropdownMenuItem>
+
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => setTimeout(() => progressTrigger.current?.click(), 0)}>
+            <Gauge />
+            Update progress
+          </DropdownMenuItem>
+          {option.progress !== "COMPLETED" ? (
+            <DropdownMenuItem asChild>
+              <div>
+                <InlineAction action={markProjectCompleted} hidden={{ id: project.id }}>
+                  <CheckCheck className="size-4 text-positive" />
+                  Mark completed
+                </InlineAction>
+              </div>
+            </DropdownMenuItem>
+          ) : null}
+          <DropdownMenuItem asChild>
+            <Link href={`/projects/${project.id}#reviews`}>
+              <MessageSquareHeart />
+              Client reviews
+            </Link>
           </DropdownMenuItem>
 
           <DropdownMenuSeparator />
@@ -120,6 +153,18 @@ export function ProjectRowActions({
       <ProjectDialog clients={clients} initial={initial}>
         <button type="button" ref={editTrigger} className="sr-only" aria-hidden tabIndex={-1} />
       </ProjectDialog>
+
+      <ProjectProgressDialog
+        project={{
+          id: project.id,
+          name: project.name,
+          progress: option.progress,
+          progressPercent: option.progressPercent,
+          progressNotes: option.progressNotes,
+        }}
+      >
+        <button type="button" ref={progressTrigger} className="sr-only" aria-hidden tabIndex={-1} />
+      </ProjectProgressDialog>
 
       <ScheduleDialog
         projectId={project.id}

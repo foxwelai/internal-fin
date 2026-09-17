@@ -6,14 +6,29 @@ import type {
   RecurringInterval,
   ExpenseCategory,
   PaymentMethod,
+  ProjectProgress,
   ProjectStatus,
+  TeamMemberKind,
   ScheduleState,
 } from "./types";
+import type { LeadQuality, LeadSource, LeadStage } from "./leads";
 
 export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
   APPROVED: "Approved",
   PENDING: "Pending",
   ON_HOLD: "On Hold",
+};
+
+export const TEAM_MEMBER_KIND_LABELS: Record<TeamMemberKind, string> = {
+  EMPLOYEE: "Team member",
+  INTERN: "Intern",
+};
+
+export const PROJECT_PROGRESS_LABELS: Record<ProjectProgress, string> = {
+  NOT_STARTED: "Not started",
+  JUST_STARTED: "Just started",
+  IN_PROGRESS: "In progress",
+  COMPLETED: "Completed",
 };
 
 export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategory, string> = {
@@ -101,4 +116,27 @@ export const EXPENSE_CATEGORY_COLORS: Record<ExpenseCategory, string> = {
   FREELANCERS: "#4bc0c8",
   TRAVEL: "#d9a441",
   MISC: "#7b8290",
+};
+
+export const LEAD_STAGE_LABELS: Record<LeadStage, string> = {
+  JUST_SPOKE: "Just spoke",
+  IN_PROCESS: "In process",
+  WON: "Closed — won",
+  LOST: "Closed — lost",
+};
+
+export const LEAD_QUALITY_LABELS: Record<LeadQuality, string> = {
+  HOT: "Hot",
+  WARM: "Warm",
+  COLD: "Cold",
+};
+
+export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = {
+  REFERRAL: "Referral",
+  WEBSITE: "Website",
+  SOCIAL: "Social media",
+  OUTREACH: "Outreach",
+  EVENT: "Event",
+  EXISTING_CLIENT: "Existing client",
+  OTHER: "Other",
 };

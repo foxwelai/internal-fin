@@ -23,11 +23,13 @@ export async function saveClient(_prev: ActionState, formData: FormData): Promis
     const parsed = clientSchema.safeParse({
       id: formValue(formData, "id") || undefined,
       name: formValue(formData, "name"),
+      clientName: formValue(formData, "clientName"),
+      phone: formValue(formData, "phone"),
+      contactPerson: formValue(formData, "contactPerson"),
+      contactPhone: formValue(formData, "contactPhone"),
       companyName: formValue(formData, "companyName"),
       website: formValue(formData, "website"),
-      contactPerson: formValue(formData, "contactPerson"),
       email: formValue(formData, "email"),
-      phone: formValue(formData, "phone"),
       notes: formValue(formData, "notes"),
     });
     if (!parsed.success) return fromZodError(parsed.error);

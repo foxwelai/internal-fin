@@ -9,6 +9,13 @@ import type { MonthKey } from "@/lib/dates";
 export const PROJECT_STATUSES = ["APPROVED", "PENDING", "ON_HOLD"] as const;
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 
+export const TEAM_MEMBER_KINDS = ["EMPLOYEE", "INTERN"] as const;
+export type TeamMemberKind = (typeof TEAM_MEMBER_KINDS)[number];
+
+/** Delivery progress — independent of status, which only governs forecasting. */
+export const PROJECT_PROGRESSES = ["NOT_STARTED", "JUST_STARTED", "IN_PROGRESS", "COMPLETED"] as const;
+export type ProjectProgress = (typeof PROJECT_PROGRESSES)[number];
+
 export const EXPENSE_CATEGORIES = [
   "SALARIES",
   "RENT",

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { Download, Plus, Users } from "lucide-react";
+import { Contact, Download, Mail, Phone, Plus, Users } from "lucide-react";
 
 import { PageHeader } from "@/components/finance/page-header";
 import { Money } from "@/components/finance/money";
@@ -33,7 +33,9 @@ import {
   todayInIST,
 } from "@/lib/dates";
 import { formatForCsv, toWire } from "@/lib/money";
-import { hasDemoData, loadSettings } from "@/lib/finance/repository";
+import { hasDemoData, loadSettings, loadTeamMembers } from "@/lib/finance/repository";
+import { TeamMemberDialog } from "@/components/dialogs/team-member-dialog";
+import { TeamMemberRowActions } from "@/components/finance/team-member-row-actions";
 import { loadTeamView } from "@/lib/team";
 import { PeopleList } from "@/components/finance/people-list";
 import { UserDialog } from "@/components/dialogs/user-dialog";
@@ -48,12 +50,14 @@ export default async function SettingsPage() {
   const canManageUsers = can(viewer.role, "users:manage");
   const canManageSettings = can(viewer.role, "settings:manage");
   const canWrite = can(viewer.role, "finance:write");
+  const canDelete = can(viewer.role, "finance:delete");
 
-  const [settings, movements, demoLoaded, team] = await Promise.all([
+  const [settings, movements, demoLoaded, team, members] = await Promise.all([
     loadSettings(),
     prisma.cashMovement.findMany({ orderBy: { occurredOn: "desc" } }),
     hasDemoData(),
     canManageUsers ? loadTeamView() : Promise.resolve(null),
+    loadTeamMembers(),
   ]);
 
   const waiting = team?.people.filter((person) => person.state === "needs-access").length ?? 0;
@@ -64,7 +68,7 @@ export default async function SettingsPage() {
     <div className="max-w-4xl space-y-5">
       <PageHeader
         title="Settings"
-        description="Company details, cash-balance tracking, exports and your sign-in credentials."
+        description="Company details, the Foxwel team, cash-balance tracking, exports and your sign-in credentials."
       />
 
       {/* ------------------------------ Company ---------------------------- */}
@@ -92,6 +96,118 @@ export default async function SettingsPage() {
         </CardContent>
       </Card>
       ) : null}
+
+      {/* ---------------------------- Foxwel team -------------------------- */}
+
+      <Card id="foxwel-team" className="overflow-hidden">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Contact className="size-4 text-faint-foreground" />
+            Foxwel team & interns
+          </CardTitle>
+          <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+            Everyone here can be picked as a project&rsquo;s coordinator. Separate from Team access
+            below — being listed doesn&rsquo;t let anyone sign in.
+          </p>
+        </CardHeader>
+
+        {(["EMPLOYEE", "INTERN"] as const).map((kind) => {
+          const group = members.filter((member) => member.kind === kind);
+          const noun = kind === "INTERN" ? "intern" : "team member";
+          return (
+            <section key={kind} className="border-t border-border">
+              <div className="flex items-center justify-between gap-3 px-4 py-2.5 sm:px-5">
+                <h3 className="text-[12px] font-semibold uppercase tracking-wider text-faint-foreground">
+                  {kind === "INTERN" ? "Interns" : "Team"}
+                  <span className="ml-1.5 font-mono tabular">{group.length}</span>
+                </h3>
+                {canWrite ? (
+                  <TeamMemberDialog defaultKind={kind}>
+                    <Button size="sm" variant="outline">
+                      <Plus />
+                      Add {noun}
+                    </Button>
+                  </TeamMemberDialog>
+                ) : null}
+              </div>
+
+              {group.length === 0 ? (
+                <p className="px-4 pb-4 text-[13px] text-muted-foreground sm:px-5">
+                  No {noun}s yet. Add them with a phone number, role and email so they&rsquo;re ready
+                  to assign.
+                </p>
+              ) : (
+                <ul className="divide-y divide-border border-t border-border">
+                  {group.map((member) => (
+                    <li
+                      key={member.id}
+                      className="flex items-center justify-between gap-3 px-4 py-3 sm:px-5"
+                    >
+                      <div className="min-w-0">
+                        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] font-medium">
+                          <span className={member.isActive ? "" : "text-muted-foreground line-through"}>
+                            {member.name}
+                          </span>
+                          {member.designation ? (
+                            <span className="rounded border border-border px-1.5 py-px text-[11px] font-normal text-muted-foreground">
+                              {member.designation}
+                            </span>
+                          ) : null}
+                          {member.isActive ? null : (
+                            <span className="rounded border border-border px-1 py-px text-[10px] uppercase tracking-wide text-faint-foreground">
+                              Left
+                            </span>
+                          )}
+                        </p>
+                        <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12px] text-muted-foreground">
+                          {member.phone ? (
+                            <a
+                              href={`tel:${member.phone.replace(/[^\d+]/g, "")}`}
+                              className="inline-flex items-center gap-1 font-mono tabular hover:text-brand"
+                            >
+                              <Phone className="size-3" />
+                              {member.phone}
+                            </a>
+                          ) : null}
+                          {member.email ? (
+                            <a
+                              href={`mailto:${member.email}`}
+                              className="inline-flex min-w-0 items-center gap-1 hover:text-brand"
+                            >
+                              <Mail className="size-3 shrink-0" />
+                              <span className="truncate">{member.email}</span>
+                            </a>
+                          ) : null}
+                          <span className="text-faint-foreground">
+                            {member._count.coordinatedProjects === 0
+                              ? "No projects"
+                              : `${member._count.coordinatedProjects} project${member._count.coordinatedProjects === 1 ? "" : "s"}`}
+                          </span>
+                        </p>
+                      </div>
+                      {canWrite ? (
+                        <TeamMemberRowActions
+                          member={{
+                            id: member.id,
+                            kind: member.kind,
+                            name: member.name,
+                            phone: member.phone,
+                            designation: member.designation,
+                            email: member.email,
+                          }}
+                          active={member.isActive}
+                          projectCount={member._count.coordinatedProjects}
+                          canDelete={canDelete}
+                        />
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          );
+        })}
+      </Card>
 
       {/* -------------------------- Cash movements ------------------------- */}
 

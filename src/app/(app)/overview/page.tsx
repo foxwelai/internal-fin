@@ -198,11 +198,15 @@ export default async function OverviewPage({
           rows={[
             {
               label: "Projected collections",
-              value: <Money value={summary.projectedCollectionsPaise} className="text-[13px]" />,
+              value: (
+                <Money value={summary.projectedCollectionsPaise} tone="positive" className="text-[13px]" />
+              ),
             },
             {
               label: "Projected outflow",
-              value: <Money value={summary.projectedCashOutflowPaise} className="text-[13px]" />,
+              value: (
+                <Money value={summary.projectedCashOutflowPaise} tone="negative" className="text-[13px]" />
+              ),
             },
           ]}
         />
